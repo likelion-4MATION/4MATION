@@ -5,8 +5,17 @@
 - 표(연속 "cell | cell" 라인)는 절대 중간분할 금지 → 단독 청크
 - FAQ 페이지(page_type/title에 'FAQ')는 질문-답변 1쌍 = 1청크 (크기 무시), '열기' 토글 제거
 
-청크 스키마(11필드): chunk_id · parent_doc_id · business_function · sub_category ·
-  page_type · coverage · variant · source_url · page_title · breadcrumb · text
+청크 스키마(13필드, [meta-doc]에서 11→13 확장): chunk_id · parent_doc_id · business_function ·
+  sub_category · page_type · coverage · variant · source_url · page_title · breadcrumb · text ·
+  attachments · has_attachments
+
+[meta-doc] 첨부 메타데이터를 페이지 단위가 아니라 "그 문서를 실제로 언급하는 청크"에만
+붙인다. parser.py가 만든 페이지 전체 첨부 후보 목록(rec['attachments'])에서, 첨부의 앵커
+텍스트(name)가 각 청크의 본문에 실제로 등장하는지 문자열 포함 여부로 판단한다 — 첨부를
+설명하는 문단과 그 문단이 속한 청크가 항상 같은 조각이 되도록 보장하기 위함(잘못된 청크에
+서식을 안내하는 오류 방지). 어떤 청크에도 매칭되지 않은 첨부는 조용히 버리지 않고
+main()에서 경고로 출력한다 — 매칭 실패 원인(앵커 텍스트가 너무 짧거나 공용 문구인 경우
+등)을 사람이 확인할 수 있게.
 """
 
 from __future__ import annotations
@@ -25,7 +34,8 @@ MIN_CHUNK = 60   # 표 사이 낀 짧은 헤딩/라인 파편 병합 임계
 
 SCHEMA_FIELDS = ["chunk_id", "parent_doc_id", "business_function", "sub_category",
                  "page_type", "coverage", "variant", "source_url",
-                 "page_title", "breadcrumb", "text"]
+                 "page_title", "breadcrumb", "text",
+                 "attachments", "has_attachments"]
 
 
 def is_faq(rec: dict) -> bool:
@@ -102,14 +112,34 @@ def _merge_small(chunks: list[str], min_len: int = MIN_CHUNK) -> list[str]:
     return out
 
 
+def match_attachments(chunk_text: str, page_attachments: list[dict]) -> list[dict]:
+    """[meta-doc] 페이지 단위 첨부 후보 중, 이 청크 본문에 실제 등장하는 것만 골라 반환.
+
+    판단 기준: 첨부의 앵커 텍스트(name)가 청크 텍스트에 부분 문자열로 포함되는지.
+    parser.py의 serialize_text()는 일반 <a> 태그를 노이즈로 제거하지 않으므로, 앵커의
+    시각적 텍스트는 본문 어딘가에 그대로 남아있다 — 그 위치가 속한 청크가 "이 문서를
+    설명하는 청크"라고 판단한다.
+
+    한계(팀 확인 필요): name이 "다운로드"처럼 일반적인 문구면 무관한 청크에 오매칭될
+    수 있다. 실제 크롤 데이터로 돌려본 뒤 오매칭 사례가 보이면 name 대신 href의
+    파일명 쪽으로 기준을 좁히는 걸 권장.
+    """
+    if not page_attachments:
+        return []
+    return [att for att in page_attachments
+            if att.get("name") and att["name"] in chunk_text]
+
+
 def make_chunks(rec: dict) -> list[dict]:
     text = rec.get("text", "")
     if not text.strip():
         return []
     parts = split_faq(text) if is_faq(rec) else split_generic(text)
     doc_id = rec["doc_id"]
+    page_attachments = rec.get("attachments", [])
     out = []
     for i, part in enumerate(parts):
+        chunk_atts = match_attachments(part, page_attachments)
         out.append({
             "chunk_id": f"{doc_id}#{i:02d}",
             "parent_doc_id": doc_id,
@@ -122,6 +152,8 @@ def make_chunks(rec: dict) -> list[dict]:
             "page_title": rec.get("page_title", ""),
             "breadcrumb": rec.get("breadcrumb", []),
             "text": part,
+            "attachments": chunk_atts,
+            "has_attachments": bool(chunk_atts),
         })
     return out
 
@@ -130,12 +162,20 @@ def main() -> None:
     parsed = sorted(glob.glob(f"{PARSED_DIR}/*.json"))
     if not parsed:
         sys.exit(f"파싱 결과 없음: {PARSED_DIR}")
-    all_chunks, skipped = [], []
+    all_chunks, skipped, attach_warn = [], [], []
     for p in parsed:
         rec = json.loads(pathlib.Path(p).read_text(encoding="utf-8"))
         cs = make_chunks(rec)
         if not cs:
             skipped.append(rec["doc_id"])
+        else:
+            # [meta-doc] 페이지 첨부 중 어떤 청크에도 안 붙은 게 있으면 경고
+            page_atts = rec.get("attachments", [])
+            matched_urls = {a["url"] for c in cs for a in c.get("attachments", [])}
+            unmatched = [a for a in page_atts if a["url"] not in matched_urls]
+            if unmatched:
+                names = [a["name"] for a in unmatched]
+                attach_warn.append(f"{rec['doc_id']}: 첨부 {len(unmatched)}건 청크 매칭 실패 — {names}")
         all_chunks.extend(cs)
 
     with open(OUT_PATH, "w", encoding="utf-8") as f:
@@ -156,9 +196,15 @@ def main() -> None:
         print(f"  본문 비어 스킵: {skipped}")
     faqn = sum(1 for c in all_chunks if is_faq(c))
     print(f"  FAQ 청크: {faqn} · 일반 청크: {len(all_chunks)-faqn}")
+    attn = sum(1 for c in all_chunks if c.get("has_attachments"))
+    print(f"  첨부 보유 청크: {attn}건")
     lens = [len(c["text"]) for c in all_chunks]
     print(f"  청크 길이 min/avg/max: {min(lens)}/{sum(lens)//len(lens)}/{max(lens)}")
     print("  스키마 검증:", "전건 유효" if not bad else f"위반 {len(bad)}건: {bad[:5]}")
+    if attach_warn:
+        print("  첨부 매칭 경고:")
+        for w in attach_warn:
+            print("   -", w)
     if bad:
         sys.exit(1)
 
