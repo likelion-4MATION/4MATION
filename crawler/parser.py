@@ -12,13 +12,21 @@
 - 브레드크럼은 `.location` 최상위 li 직계자식의 첫 링크만 (드롭다운 형제메뉴 무시).
 - coverage=안내부 페이지(상속인 금융거래조회)는 조회 기능부(btnBottomArea) 제거로 안내부만 남김.
 
-[meta-doc] 첨부(PDF/HWP 등)는 파싱하지 않지만, 구조화된 메타로 격상해서 보존한다:
-  - url을 절대경로로 정규화(urljoin) — LLM 챗봇이 그대로 다운로드 링크로 반환 가능.
-  - file_type(확장자) 추출 — 답변 시 "hwp 파일입니다" 같은 안내에 사용.
-  - doc_kind(양식/안내자료/기타) 키워드 휴리스틱 분류 — LLM 미사용 원칙 유지(결정론적).
-  - has_attachments 플래그 — 페이지 단위 존재 여부를 메타에서 바로 필터링 가능하게.
-  실제 "어느 텍스트 조각이 이 첨부를 설명하는가"의 청크 단위 매칭은 chunk.py에서 수행한다
-  (파서는 페이지 전체의 첨부 후보 목록만 만들고, 텍스트-첨부 연결은 청킹 단계 책임).
+[meta-doc] 답변 시 문서·양식을 반환하기 위한 "문서 존재/링크" 메타데이터 태깅:
+  - has_attachments: 이 페이지에 첨부(서식·양식·안내자료)가 있는지 여부.
+  - attachments: [{name, url, file_type}, ...] — 기존 링크를 그대로 절대경로로 반환.
+  탐지 조건을 두 가지 OR로 잡는다:
+    1) href 자체에 파일 경로/확장자 패턴이 있는 경우 (기존 방식, /cm/file/ 또는 확장자).
+    2) href엔 패턴이 없어도(예: javascript:void(0) 같은 JS 트리거 다운로드) 앵커
+       텍스트 자체에 "위임장.hwp"처럼 파일 확장자가 노출된 경우.
+  2)를 추가한 이유: 국내 공공기관 사이트는 fileDown.do?atchFileId=... 같은 확장자
+  없는 서블릿형 다운로드를 흔히 쓰는데, 실제 크롤 데이터로 확인해보니(33건) href
+  기준 탐지가 0건이었다. 실제 KDIC 다운로드 URL 패턴이 확정되면(find_file_links.py
+  결과) FILE_URL_KEYWORDS를 그 패턴으로 좁혀 정확도를 올릴 것 — 지금은 놓치는 것보다
+  넓게 잡는 쪽으로 설계.
+  JS 트리거 다운로드(href="javascript:void(0)")는 실제 다운로드 URL을 href에서 알
+  수 없다 — 이 경우 url 필드엔 href 원문(javascript:...)이 그대로 들어가고, onclick
+  속성을 onclick 필드에 별도 보존해 사람이 나중에 실제 엔드포인트를 확인할 수 있게 한다.
 """
 
 from __future__ import annotations
@@ -53,26 +61,16 @@ COVERAGE_ANNAE = {
     "kdic-www-sp-sprtfund-SprtFndDebtDlngAplyGudn-selectScrn",   # 부채증명원/금융거래정보신청
 }
 
-ATTACH_RE = re.compile(r"\.(hwp|hwpx|pdf|xlsx?|docx?|pptx?|zip|txt|csv)(\?|$)", re.I)
+# [meta-doc] href 기반 탐지 — 기존 확장자 패턴 + 서블릿형 다운로드 키워드
+FILE_EXT_RE = re.compile(r"\.(hwp|hwpx|pdf|xlsx?|docx?|pptx?|zip|txt|csv)(\?|$)", re.I)
+FILE_URL_KEYWORDS = ("/cm/file/", "filedown", "atchfile", "atchFile", "download", "fileview")
 
-# [meta-doc] 첨부 종류 키워드 휴리스틱 — LLM 미사용, 결정론적 분류
-DOC_KIND_KEYWORDS = [
-    ("양식", ("신청서", "위임장", "동의서", "확인서", "서식", "양식", "작성례")),
-    ("안내자료", ("안내", "매뉴얼", "가이드", "설명자료", "리플릿")),
-]
+# [meta-doc] href에 패턴이 없을 때 앵커 텍스트에서 확장자를 찾는 보조 탐지
+FILE_EXT_IN_TEXT_RE = re.compile(r"\.(hwp|hwpx|pdf|xlsx?|docx?|pptx?|zip)\b", re.I)
 
 
 def collapse(s: str) -> str:
     return re.sub(r"[ \t ]+", " ", s).strip()
-
-
-def infer_doc_kind(name: str) -> str:
-    """첨부 이름(앵커 텍스트/파일명)에서 문서 종류를 결정론적으로 추정.
-    답변 시 '양식'과 '안내자료'를 다르게 안내하기 위한 최소 분류 — LLM 미사용."""
-    for kind, keywords in DOC_KIND_KEYWORDS:
-        if any(kw in name for kw in keywords):
-            return kind
-    return "기타"
 
 
 def table_to_lines(table) -> str:
@@ -109,31 +107,42 @@ def extract_breadcrumb(soup) -> list[str]:
 
 
 def extract_attachments(container, base_url: str = "") -> list[dict]:
-    """첨부(서식·양식·안내자료) 링크를 구조화 메타로 추출한다.
+    """첨부(서식·양식·안내자료) 링크를 "문서 존재/링크" 메타데이터로 태깅한다.
 
-    [meta-doc] 이전엔 {name, url}만 보존했으나, LLM 챗봇이 답변 시 문서를
-    바로 반환할 수 있도록 세 필드를 보강한다:
-      - url: base_url 기준 절대경로로 정규화 (상대경로면 페이지가 사라져도 깨짐)
-      - file_type: 확장자(hwp/pdf/xlsx 등) — 사용자에게 파일 형식 안내용
-      - doc_kind: 양식 / 안내자료 / 기타 — 키워드 휴리스틱, 결정론적 분류
+    반환 각 항목: {name, url, file_type, onclick}
+      - url: href가 실제 경로면 base_url 기준 절대경로로 정규화해서 그대로 반환.
+             href가 javascript:... 같은 JS 트리거면 원문 그대로 두고 onclick에
+             실제 핸들러를 남긴다 (사람이 실제 다운로드 엔드포인트를 확인해야 함).
+      - file_type: href 또는 앵커 텍스트에서 찾은 확장자.
     """
     out, seen = [], set()
     for a in container.find_all("a", href=True):
         href = a["href"].strip()
-        if "/cm/file/" in href or ATTACH_RE.search(href):
-            if href in seen:
-                continue
-            seen.add(href)
-            name = collapse(a.get_text(" ")) or href.rsplit("/", 1)[-1]
-            m = ATTACH_RE.search(href)
-            file_type = m.group(1).lower() if m else ""
-            abs_url = urljoin(base_url, href) if base_url else href
-            out.append({
-                "name": name,
-                "url": abs_url,
-                "file_type": file_type,
-                "doc_kind": infer_doc_kind(name),
-            })
+        name = collapse(a.get_text(" "))
+
+        href_ext = FILE_EXT_RE.search(href)
+        href_kw = any(k.lower() in href.lower() for k in FILE_URL_KEYWORDS)
+        text_ext = FILE_EXT_IN_TEXT_RE.search(name) if name else None
+
+        if not (href_ext or href_kw or text_ext):
+            continue
+
+        is_js_href = href.lower().startswith("javascript:") or href == "#"
+        key = f"{href}|{name}" if is_js_href else href
+        if key in seen:
+            continue
+        seen.add(key)
+
+        ext_match = href_ext or text_ext
+        file_type = ext_match.group(1).lower() if ext_match else ""
+        url = href if is_js_href else (urljoin(base_url, href) if base_url else href)
+
+        out.append({
+            "name": name or href.rsplit("/", 1)[-1],
+            "url": url,
+            "file_type": file_type,
+            "onclick": a.get("onclick", "") if is_js_href else "",
+        })
     return out
 
 
