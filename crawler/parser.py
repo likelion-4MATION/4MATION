@@ -11,7 +11,14 @@
 - 표는 값 유실 없이 행 텍스트("cell | cell")로 직렬화. 구조 미화(markdown)는 P2 몫이라 안 함.
 - 브레드크럼은 `.location` 최상위 li 직계자식의 첫 링크만 (드롭다운 형제메뉴 무시).
 - coverage=안내부 페이지(상속인 금융거래조회)는 조회 기능부(btnBottomArea) 제거로 안내부만 남김.
-- 첨부(PDF/HWP 등)는 파싱하지 않고 attachments 목록만 보존.
+
+[meta-doc] 첨부(PDF/HWP 등)는 파싱하지 않지만, 구조화된 메타로 격상해서 보존한다:
+  - url을 절대경로로 정규화(urljoin) — LLM 챗봇이 그대로 다운로드 링크로 반환 가능.
+  - file_type(확장자) 추출 — 답변 시 "hwp 파일입니다" 같은 안내에 사용.
+  - doc_kind(양식/안내자료/기타) 키워드 휴리스틱 분류 — LLM 미사용 원칙 유지(결정론적).
+  - has_attachments 플래그 — 페이지 단위 존재 여부를 메타에서 바로 필터링 가능하게.
+  실제 "어느 텍스트 조각이 이 첨부를 설명하는가"의 청크 단위 매칭은 chunk.py에서 수행한다
+  (파서는 페이지 전체의 첨부 후보 목록만 만들고, 텍스트-첨부 연결은 청킹 단계 책임).
 """
 
 from __future__ import annotations
@@ -22,6 +29,7 @@ import json
 import pathlib
 import re
 import sys
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, NavigableString
 
@@ -47,9 +55,24 @@ COVERAGE_ANNAE = {
 
 ATTACH_RE = re.compile(r"\.(hwp|hwpx|pdf|xlsx?|docx?|pptx?|zip|txt|csv)(\?|$)", re.I)
 
+# [meta-doc] 첨부 종류 키워드 휴리스틱 — LLM 미사용, 결정론적 분류
+DOC_KIND_KEYWORDS = [
+    ("양식", ("신청서", "위임장", "동의서", "확인서", "서식", "양식", "작성례")),
+    ("안내자료", ("안내", "매뉴얼", "가이드", "설명자료", "리플릿")),
+]
+
 
 def collapse(s: str) -> str:
-    return re.sub(r"[ \t ]+", " ", s).strip()
+    return re.sub(r"[ \t ]+", " ", s).strip()
+
+
+def infer_doc_kind(name: str) -> str:
+    """첨부 이름(앵커 텍스트/파일명)에서 문서 종류를 결정론적으로 추정.
+    답변 시 '양식'과 '안내자료'를 다르게 안내하기 위한 최소 분류 — LLM 미사용."""
+    for kind, keywords in DOC_KIND_KEYWORDS:
+        if any(kw in name for kw in keywords):
+            return kind
+    return "기타"
 
 
 def table_to_lines(table) -> str:
@@ -85,8 +108,15 @@ def extract_breadcrumb(soup) -> list[str]:
     return out
 
 
-def extract_attachments(container) -> list[dict]:
-    """첨부 링크 목록만 보존 (파싱 안 함). /cm/file/ 또는 문서 확장자."""
+def extract_attachments(container, base_url: str = "") -> list[dict]:
+    """첨부(서식·양식·안내자료) 링크를 구조화 메타로 추출한다.
+
+    [meta-doc] 이전엔 {name, url}만 보존했으나, LLM 챗봇이 답변 시 문서를
+    바로 반환할 수 있도록 세 필드를 보강한다:
+      - url: base_url 기준 절대경로로 정규화 (상대경로면 페이지가 사라져도 깨짐)
+      - file_type: 확장자(hwp/pdf/xlsx 등) — 사용자에게 파일 형식 안내용
+      - doc_kind: 양식 / 안내자료 / 기타 — 키워드 휴리스틱, 결정론적 분류
+    """
     out, seen = [], set()
     for a in container.find_all("a", href=True):
         href = a["href"].strip()
@@ -95,7 +125,15 @@ def extract_attachments(container) -> list[dict]:
                 continue
             seen.add(href)
             name = collapse(a.get_text(" ")) or href.rsplit("/", 1)[-1]
-            out.append({"name": name, "url": href})
+            m = ATTACH_RE.search(href)
+            file_type = m.group(1).lower() if m else ""
+            abs_url = urljoin(base_url, href) if base_url else href
+            out.append({
+                "name": name,
+                "url": abs_url,
+                "file_type": file_type,
+                "doc_kind": infer_doc_kind(name),
+            })
     return out
 
 
@@ -116,11 +154,14 @@ def parse_one(doc_id: str, html: str, meta: dict) -> dict:
     container = soup.select_one(CONTENT_SELECTOR)
     if container is None:
         # 컨테이너 미탐지 — 본문 유실 위험. 빈 텍스트로 표시하고 호출측에서 경고.
-        return {"doc_id": doc_id, "text": "", "attachments": [],
+        return {"doc_id": doc_id, "text": "", "attachments": [], "has_attachments": False,
                 "breadcrumb": breadcrumb, "_no_container": True}
 
+    # [meta-doc] 첨부 url 정규화 기준 — final_url 우선(리다이렉트 반영), 없으면 source_url
+    base_url = meta.get("final_url") or meta.get("source_url", "")
+
     # 첨부는 노이즈 제거 전에 수집 (기능부 안에 서식 다운로드가 있을 수 있음)
-    attachments = extract_attachments(container)
+    attachments = extract_attachments(container, base_url)
 
     for sel in NOISE_SELECTORS:
         for n in container.select(sel):
@@ -149,6 +190,7 @@ def parse_one(doc_id: str, html: str, meta: dict) -> dict:
         "text": text,
         "text_len": len(text),
         "attachments": attachments,
+        "has_attachments": bool(attachments),
         "robots_status": meta.get("robots_status", ""),
         "collected_at": meta.get("collected_at", ""),
         "raw_sha256": meta.get("raw_sha256", ""),
@@ -165,6 +207,7 @@ def main() -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
 
     ok, warn = 0, []
+    attach_docs = 0
     for p in raw_glob:
         doc_id = p.stem
         meta_path = pathlib.Path(META_DIR) / f"{doc_id}.json"
@@ -177,9 +220,12 @@ def main() -> None:
             warn.append(f"{doc_id}: 본문 컨테이너 미탐지")
         elif rec["text_len"] < 120:
             warn.append(f"{doc_id}: 본문 {rec['text_len']}자 (얇음 — 이미지/영상 위주 의심)")
+        if rec.get("has_attachments"):
+            attach_docs += 1
         ok += 1
 
     print(f"파싱 {ok}건 → {out_dir}/")
+    print(f"  첨부 보유 문서: {attach_docs}건")
     if warn:
         print("경고:")
         for w in warn:
