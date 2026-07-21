@@ -12,23 +12,20 @@
 - 브레드크럼은 `.location` 최상위 li 직계자식의 첫 링크만 (드롭다운 형제메뉴 무시).
 - coverage=안내부 페이지(상속인 금융거래조회)는 조회 기능부(btnBottomArea) 제거로 안내부만 남김.
 
-[meta-doc] 답변 시 문서·양식을 반환하기 위한 "문서 존재/링크" 메타데이터 태깅:
-  - has_attachments: 이 페이지에 첨부(서식·양식·안내자료)가 있는지 여부.
-  - attachments: [{name, url, file_type}, ...] — 기존 링크를 그대로 절대경로로 반환.
-  탐지 조건을 두 가지 OR로 잡는다:
-    1) href 자체에 파일 경로/확장자 패턴이 있는 경우 (기존 방식, /cm/file/ 또는 확장자).
-    2) href엔 패턴이 없어도(예: javascript:void(0) 같은 JS 트리거 다운로드) 앵커
-       텍스트 자체에 "위임장.hwp"처럼 파일 확장자가 노출된 경우.
-  2)를 추가한 이유: 국내 공공기관 사이트는 fileDown.do?atchFileId=... 같은 확장자
-  없는 서블릿형 다운로드를 흔히 쓰는데, 실제 크롤 데이터로 확인해보니(33건) href
-  기준 탐지가 0건이었다. 실제 KDIC 다운로드 URL 패턴이 확정되면(find_file_links.py
-  결과) FILE_URL_KEYWORDS를 그 패턴으로 좁혀 정확도를 올릴 것 — 지금은 놓치는 것보다
-  넓게 잡는 쪽으로 설계.
-  JS 트리거 다운로드(href="javascript:void(0)")는 실제 다운로드 URL을 href에서 알
-  수 없다 — 이 경우 url 필드엔 href 원문(javascript:...)이 그대로 들어가고, onclick
-  속성을 onclick 필드에 별도 보존해 사람이 나중에 실제 엔드포인트를 확인할 수 있게 한다.
+첨부(PDF/HWP 등) 처리 — 정적 크롤링 범위 내에서 가능한 만큼 태깅:
+  실사 결과 두 가지 패턴이 섞여 있음.
+  1) www.kdic.or.kr 자료실/보도자료류: <a href="...pdf/hwp">  → 절대 URL을 그대로 확보 가능
+     (link_type="direct", url 채워짐).
+  2) fins.kdic.or.kr 포털(구비서류안내 등): <button class="btnIco icoHwp/icoPdf"
+     onclick="gfn_downloadFile(encId, encName)">  → href가 아예 없고, 실제 다운로드는
+     POST /api/cm/file/downloadFile.do 에 세션 종속(추정) 암호화 파라미터가 필요.
+     정적 HTML만으로는 절대경로 URL을 만들 수 없어 url=None으로 두고
+     link_type="onclick_dynamic" 태깅, 대신 존재 여부(name/file_type/doc_kind)와
+     안내 페이지 자체 URL을 fallback_url로 남긴다 (답변 시 "이 페이지에서 받으세요" 용도).
+     raw_onclick은 추후 동적 재수집(P2+) 대비 원본 보존용.
+  doc_kind는 첨부가 속한 표의 헤더 텍스트(예: '관련 서식')를 규칙 매칭해서 부여.
+  표 밖에 있는 느슨한 첨부 링크는 doc_kind="기타"로 처리.
 """
-
 from __future__ import annotations
 
 import glob
@@ -44,10 +41,10 @@ from bs4 import BeautifulSoup, NavigableString
 RAW_DIR = "data/raw"
 META_DIR = "data/meta"
 OUT_DIR = "data/parsed"
-
 CONTENT_SELECTOR = ".contents"
 
 # .contents 내부에서 제거할 크롬/기능부 (결정론적)
+# 주의: attachments 추출은 이 제거보다 먼저 수행해야 함 (button 태그가 여기서 날아감)
 NOISE_SELECTORS = [
     "script", "style", "noscript",
     ".floatTop", ".floatBottom", ".btnBottomArea",
@@ -61,16 +58,44 @@ COVERAGE_ANNAE = {
     "kdic-www-sp-sprtfund-SprtFndDebtDlngAplyGudn-selectScrn",   # 부채증명원/금융거래정보신청
 }
 
-# [meta-doc] href 기반 탐지 — 기존 확장자 패턴 + 서블릿형 다운로드 키워드
-FILE_EXT_RE = re.compile(r"\.(hwp|hwpx|pdf|xlsx?|docx?|pptx?|zip|txt|csv)(\?|$)", re.I)
-FILE_URL_KEYWORDS = ("/cm/file/", "filedown", "atchfile", "atchFile", "download", "fileview")
+ATTACH_RE = re.compile(r"\.(hwp|hwpx|pdf|xlsx?|docx?|pptx?|zip|txt|csv)(\?|$)", re.I)
 
-# [meta-doc] href에 패턴이 없을 때 앵커 텍스트에서 확장자를 찾는 보조 탐지
-FILE_EXT_IN_TEXT_RE = re.compile(r"\.(hwp|hwpx|pdf|xlsx?|docx?|pptx?|zip)\b", re.I)
+# 표 헤더 텍스트 → doc_kind 규칙 매핑 (우선순위 순서대로 첫 매치 채택)
+DOC_KIND_RULES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"서식|양식"), "양식"),
+    (re.compile(r"안내|자료|첨부"), "안내자료"),
+]
+
+# button/a class="btnIco icoXxx" → file_type 매핑에 쓰는 패턴
+ICO_CLASS_RE = re.compile(r"^ico([A-Za-z]+)$")
 
 
 def collapse(s: str) -> str:
     return re.sub(r"[ \t ]+", " ", s).strip()
+
+
+def infer_doc_kind(header_text: str) -> str:
+    if not header_text:
+        return "기타"
+    for pattern, kind in DOC_KIND_RULES:
+        if pattern.search(header_text):
+            return kind
+    return "기타"
+
+
+def get_table_headers(table) -> list[str]:
+    """표 헤더 텍스트 목록 (컬럼 인덱스 → doc_kind 추론용)."""
+    header_row = None
+    thead = table.find("thead")
+    if thead:
+        header_row = thead.find("tr")
+    if header_row is None:
+        first_tr = table.find("tr")
+        if first_tr and first_tr.find_all("th"):
+            header_row = first_tr
+    if header_row is None:
+        return []
+    return [collapse(th.get_text(" ")) for th in header_row.find_all(["th", "td"])]
 
 
 def table_to_lines(table) -> str:
@@ -106,43 +131,96 @@ def extract_breadcrumb(soup) -> list[str]:
     return out
 
 
-def extract_attachments(container, base_url: str = "") -> list[dict]:
-    """첨부(서식·양식·안내자료) 링크를 "문서 존재/링크" 메타데이터로 태깅한다.
+def _direct_attachment(a, doc_kind: str, base_url: str) -> dict | None:
+    href = a.get("href", "").strip()
+    if not href or href.startswith("javascript:"):
+        return None
+    if "/cm/file/" not in href and not ATTACH_RE.search(href):
+        return None
+    m = ATTACH_RE.search(href)
+    file_type = m.group(1).lower() if m else "other"
+    abs_url = urljoin(base_url, href)
+    return {
+        "name": collapse(a.get_text(" ")) or href.rsplit("/", 1)[-1],
+        "file_type": file_type,
+        "doc_kind": doc_kind,
+        "url": abs_url,
+        "link_type": "direct",
+        "fallback_url": base_url,
+        "raw_onclick": None,
+    }
 
-    반환 각 항목: {name, url, file_type, onclick}
-      - url: href가 실제 경로면 base_url 기준 절대경로로 정규화해서 그대로 반환.
-             href가 javascript:... 같은 JS 트리거면 원문 그대로 두고 onclick에
-             실제 핸들러를 남긴다 (사람이 실제 다운로드 엔드포인트를 확인해야 함).
-      - file_type: href 또는 앵커 텍스트에서 찾은 확장자.
+
+def _dynamic_attachment(btn, doc_kind: str, base_url: str) -> dict | None:
+    onclick = btn.get("onclick", "") or ""
+    if "gfn_downloadFile" not in onclick:
+        return None
+    file_type = "other"
+    for c in btn.get("class", []):
+        m = ICO_CLASS_RE.match(c)
+        if m:
+            file_type = m.group(1).lower()
+            break
+    return {
+        "name": collapse(btn.get_text(" ")),
+        "file_type": file_type,
+        "doc_kind": doc_kind,
+        "url": None,
+        "link_type": "onclick_dynamic",
+        "fallback_url": base_url,
+        "raw_onclick": onclick,
+    }
+
+
+def extract_attachments(container, base_url: str) -> list[dict]:
+    """첨부 목록 보존 + 정적 크롤링 범위 내에서 가능한 메타 태깅.
+
+    반환 스키마 (item당):
+      name, file_type, doc_kind, url, link_type("direct"|"onclick_dynamic"),
+      fallback_url(항상 채움 — 안내 페이지 자체 URL), raw_onclick(dynamic만)
     """
-    out, seen = [], set()
+    out: list[dict] = []
+    seen: set[tuple] = set()
+
+    def add(item: dict | None, dedup_key: tuple) -> None:
+        if item is None or dedup_key in seen:
+            return
+        seen.add(dedup_key)
+        out.append(item)
+
+    for table in container.find_all("table"):
+        headers = get_table_headers(table)
+        for tr in table.find_all("tr"):
+            cells = tr.find_all(["th", "td"])
+            for idx, cell in enumerate(cells):
+                header_text = headers[idx] if idx < len(headers) else ""
+                doc_kind = infer_doc_kind(header_text)
+
+                for a in cell.find_all("a", href=True):
+                    item = _direct_attachment(a, doc_kind, base_url)
+                    if item:
+                        add(item, ("direct", item["url"]))
+
+                for btn in cell.select("button.btnIco, a.btnIco"):
+                    item = _dynamic_attachment(btn, doc_kind, base_url)
+                    if item:
+                        add(item, ("dynamic", item["name"], item["raw_onclick"]))
+
+    # 표 밖 느슨한 첨부 링크 (자료실/보도자료 목록형 페이지 등)
     for a in container.find_all("a", href=True):
-        href = a["href"].strip()
-        name = collapse(a.get_text(" "))
-
-        href_ext = FILE_EXT_RE.search(href)
-        href_kw = any(k.lower() in href.lower() for k in FILE_URL_KEYWORDS)
-        text_ext = FILE_EXT_IN_TEXT_RE.search(name) if name else None
-
-        if not (href_ext or href_kw or text_ext):
+        if a.find_parent("table"):
             continue
+        item = _direct_attachment(a, "기타", base_url)
+        if item:
+            add(item, ("direct", item["url"]))
 
-        is_js_href = href.lower().startswith("javascript:") or href == "#"
-        key = f"{href}|{name}" if is_js_href else href
-        if key in seen:
+    for btn in container.select("button.btnIco, a.btnIco"):
+        if btn.find_parent("table"):
             continue
-        seen.add(key)
+        item = _dynamic_attachment(btn, "기타", base_url)
+        if item:
+            add(item, ("dynamic", item["name"], item["raw_onclick"]))
 
-        ext_match = href_ext or text_ext
-        file_type = ext_match.group(1).lower() if ext_match else ""
-        url = href if is_js_href else (urljoin(base_url, href) if base_url else href)
-
-        out.append({
-            "name": name or href.rsplit("/", 1)[-1],
-            "url": url,
-            "file_type": file_type,
-            "onclick": a.get("onclick", "") if is_js_href else "",
-        })
     return out
 
 
@@ -159,17 +237,17 @@ def serialize_text(container) -> str:
 def parse_one(doc_id: str, html: str, meta: dict) -> dict:
     soup = BeautifulSoup(html, "lxml")
     breadcrumb = extract_breadcrumb(soup)
-
     container = soup.select_one(CONTENT_SELECTOR)
+    base_url = meta.get("final_url") or meta.get("source_url") or ""
+
     if container is None:
         # 컨테이너 미탐지 — 본문 유실 위험. 빈 텍스트로 표시하고 호출측에서 경고.
-        return {"doc_id": doc_id, "text": "", "attachments": [], "has_attachments": False,
+        return {"doc_id": doc_id, "text": "", "attachments": [],
+                "has_attachments": False, "attachment_count": 0,
                 "breadcrumb": breadcrumb, "_no_container": True}
 
-    # [meta-doc] 첨부 url 정규화 기준 — final_url 우선(리다이렉트 반영), 없으면 source_url
-    base_url = meta.get("final_url") or meta.get("source_url", "")
-
-    # 첨부는 노이즈 제거 전에 수집 (기능부 안에 서식 다운로드가 있을 수 있음)
+    # 첨부는 노이즈 제거 전에 수집 (기능부 안에 서식 다운로드가 있을 수 있음,
+    # button 태그는 NOISE_SELECTORS에서 통째로 decompose되므로 반드시 먼저 실행)
     attachments = extract_attachments(container, base_url)
 
     for sel in NOISE_SELECTORS:
@@ -177,7 +255,6 @@ def parse_one(doc_id: str, html: str, meta: dict) -> dict:
             n.decompose()
 
     text = serialize_text(container)
-
     site = "www" if "-www-" in doc_id else ("fins" if "-fins-" in doc_id else "")
     coverage = "안내부" if doc_id in COVERAGE_ANNAE else "전체"
     page_title = breadcrumb[-1] if breadcrumb else collapse(meta.get("title", ""))
@@ -199,7 +276,8 @@ def parse_one(doc_id: str, html: str, meta: dict) -> dict:
         "text": text,
         "text_len": len(text),
         "attachments": attachments,
-        "has_attachments": bool(attachments),
+        "has_attachments": len(attachments) > 0,
+        "attachment_count": len(attachments),
         "robots_status": meta.get("robots_status", ""),
         "collected_at": meta.get("collected_at", ""),
         "raw_sha256": meta.get("raw_sha256", ""),
@@ -212,11 +290,11 @@ def main() -> None:
     raw_glob = sorted((src_root / RAW_DIR).glob("*.html"))
     if not raw_glob:
         sys.exit(f"raw HTML 없음: {src_root / RAW_DIR}")
+
     out_dir = pathlib.Path(OUT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     ok, warn = 0, []
-    attach_docs = 0
     for p in raw_glob:
         doc_id = p.stem
         meta_path = pathlib.Path(META_DIR) / f"{doc_id}.json"
@@ -229,12 +307,9 @@ def main() -> None:
             warn.append(f"{doc_id}: 본문 컨테이너 미탐지")
         elif rec["text_len"] < 120:
             warn.append(f"{doc_id}: 본문 {rec['text_len']}자 (얇음 — 이미지/영상 위주 의심)")
-        if rec.get("has_attachments"):
-            attach_docs += 1
         ok += 1
 
     print(f"파싱 {ok}건 → {out_dir}/")
-    print(f"  첨부 보유 문서: {attach_docs}건")
     if warn:
         print("경고:")
         for w in warn:
