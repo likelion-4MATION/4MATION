@@ -19,10 +19,11 @@
   2) fins.kdic.or.kr 포털(구비서류안내 등): <button class="btnIco icoHwp/icoPdf"
      onclick="gfn_downloadFile(encId, encName)">  → href가 아예 없고, 실제 다운로드는
      POST /api/cm/file/downloadFile.do 에 세션 종속(추정) 암호화 파라미터가 필요.
-     정적 HTML만으로는 절대경로 URL을 만들 수 없어 url=None으로 두고
-     link_type="onclick_dynamic" 태깅, 대신 존재 여부(name/file_type/doc_kind)와
-     안내 페이지 자체 URL을 fallback_url로 남긴다 (답변 시 "이 페이지에서 받으세요" 용도).
-     raw_onclick은 추후 동적 재수집(P2+) 대비 원본 보존용.
+     정적 HTML만으로는 절대경로 URL을 만들 수 없다. [meta-doc] 하지만 챗봇은 문서
+     파일 자체를 반환할 필요 없이 "문서를 찾을 수 있는 URL"만 안내하면 되므로,
+     link_type="onclick_dynamic" 태깅하고 url에는 실제 파일 대신 안내 페이지 자체
+     URL을 채운다(답변 시 "이 페이지에서 받으세요" 용도). 실제 파일을 재구성해
+     직접 서빙하기 위한 동적 재수집(P2+) 준비용 raw_onclick 원본은 보존하지 않는다.
   doc_kind는 첨부가 속한 표의 헤더 텍스트(예: '관련 서식')를 규칙 매칭해서 부여.
   표 밖에 있는 느슨한 첨부 링크는 doc_kind="기타"로 처리.
 """
@@ -34,6 +35,7 @@ import json
 import pathlib
 import re
 import sys
+from copy import deepcopy
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, NavigableString
@@ -98,6 +100,13 @@ def get_table_headers(table) -> list[str]:
     return [collapse(th.get_text(" ")) for th in header_row.find_all(["th", "td"])]
 
 
+def _row_line(tr) -> str:
+    """표 한 행을 "cell | cell" 한 줄로 직렬화 (table_to_lines·_anchor_text 공용)."""
+    cells = [collapse(c.get_text(" ")) for c in tr.find_all(["th", "td"])]
+    cells = [c for c in cells if c]
+    return " | ".join(cells)
+
+
 def table_to_lines(table) -> str:
     """표를 값 유실 없이 행 텍스트로 직렬화 (미화 없음)."""
     lines = []
@@ -107,10 +116,9 @@ def table_to_lines(table) -> str:
         if t:
             lines.append(t)
     for tr in table.find_all("tr"):
-        cells = [collapse(c.get_text(" ")) for c in tr.find_all(["th", "td"])]
-        cells = [c for c in cells if c]
-        if cells:
-            lines.append(" | ".join(cells))
+        line = _row_line(tr)
+        if line:
+            lines.append(line)
     return "\n".join(lines)
 
 
@@ -131,6 +139,41 @@ def extract_breadcrumb(soup) -> list[str]:
     return out
 
 
+def _anchor_text(el) -> str:
+    """el(버튼)을 감싸는 문맥에서, 최종 본문 텍스트에 그대로 남는 형태로 앵커를 뽑는다.
+
+    chunk.py가 첨부를 청크에 매칭할 때 쓰는 앵커. onclick_dynamic 버튼은
+    serialize_text() 단계에서 통째로 decompose되므로 버튼 자신의 텍스트는
+    본문에 남지 않는다 — 대신 버튼을 감싸는 li/행의 안내 문구("~신청서" 등)가
+    본문에 남으므로 그쪽을 앵커로 써야 매칭이 가능하다. 단, 본문 직렬화 방식이
+    li(비표) 문맥과 표 행 문맥에서 다르므로(serialize_text vs table_to_lines),
+    앵커도 같은 방식으로 만들어야 부분 문자열 매칭이 성립한다:
+      - <li> 조상이 있으면: serialize_text()처럼 줄 단위 collapse 후 "\\n" 결합.
+        (li 안에 문서명 자체가 있는 케이스 — 구비서류안내류)
+      - 없고 <tr> 조상이 있으면: table_to_lines()의 _row_line()과 동일하게
+        같은 행의 다른 셀(문서명이 버튼과 분리된 셀에 있는 경우)까지 포함해
+        "cell | cell" 한 줄로 결합. (버튼 셀 자체엔 텍스트가 없는 케이스 — 자료실류)
+    """
+    li = el.find_parent("li")
+    if li is not None:
+        ctx = deepcopy(li)
+        for b in ctx.select("button.btnIco, a.btnIco"):
+            b.decompose()
+        raw = ctx.get_text("\n")
+        lines = [collapse(l) for l in raw.split("\n")]
+        lines = [l for l in lines if l]
+        return "\n".join(lines)
+
+    tr = el.find_parent("tr")
+    if tr is not None:
+        ctx = deepcopy(tr)
+        for b in ctx.select("button.btnIco, a.btnIco"):
+            b.decompose()
+        return _row_line(ctx)
+
+    return ""
+
+
 def _direct_attachment(a, doc_kind: str, base_url: str) -> dict | None:
     href = a.get("href", "").strip()
     if not href or href.startswith("javascript:"):
@@ -140,14 +183,17 @@ def _direct_attachment(a, doc_kind: str, base_url: str) -> dict | None:
     m = ATTACH_RE.search(href)
     file_type = m.group(1).lower() if m else "other"
     abs_url = urljoin(base_url, href)
+    name = collapse(a.get_text(" ")) or href.rsplit("/", 1)[-1]
     return {
-        "name": collapse(a.get_text(" ")) or href.rsplit("/", 1)[-1],
+        "name": name,
         "file_type": file_type,
         "doc_kind": doc_kind,
+        # url = "문서를 찾을 수 있는 위치" — direct는 파일 자체의 절대 URL.
         "url": abs_url,
         "link_type": "direct",
-        "fallback_url": base_url,
-        "raw_onclick": None,
+        # direct는 <a> 태그 자체가 노이즈 제거 대상이 아니라 name이 본문에
+        # 그대로 남는다 — anchor_text=name으로 매칭 방식을 dynamic과 통일.
+        "anchor_text": name,
     }
 
 
@@ -165,10 +211,13 @@ def _dynamic_attachment(btn, doc_kind: str, base_url: str) -> dict | None:
         "name": collapse(btn.get_text(" ")),
         "file_type": file_type,
         "doc_kind": doc_kind,
-        "url": None,
+        # url = "문서를 찾을 수 있는 위치" — 정적 크롤링으로는 실제 파일 절대 URL을
+        # 만들 수 없으므로(세션 종속 암호화 파라미터 필요), 문서가 있는 안내 페이지
+        # 자체 URL을 대신 채운다. 챗봇은 파일을 직접 반환하지 않고 "이 URL에서
+        # 받으세요"로 안내하면 되므로 이 값으로 충분하다.
+        "url": base_url,
         "link_type": "onclick_dynamic",
-        "fallback_url": base_url,
-        "raw_onclick": onclick,
+        "anchor_text": _anchor_text(btn),
     }
 
 
@@ -176,8 +225,14 @@ def extract_attachments(container, base_url: str) -> list[dict]:
     """첨부 목록 보존 + 정적 크롤링 범위 내에서 가능한 메타 태깅.
 
     반환 스키마 (item당):
-      name, file_type, doc_kind, url, link_type("direct"|"onclick_dynamic"),
-      fallback_url(항상 채움 — 안내 페이지 자체 URL), raw_onclick(dynamic만)
+      name, file_type, doc_kind, url(항상 채움 — "문서를 찾을 수 있는 URL".
+      direct는 파일 자체의 절대 URL, onclick_dynamic은 파일 URL을 만들 수 없어
+      대신 안내 페이지 자체 URL — 챗봇이 문서 파일을 직접 반환할 필요 없이
+      링크만 안내하면 되므로 이 값으로 충분), link_type("direct"|"onclick_dynamic",
+      url이 실제 파일인지 안내 페이지인지 구분용),
+      anchor_text(chunk.py가 청크 매칭에 쓰는 필드 — direct는 name과 동일,
+      dynamic은 버튼을 감싸는 li/td 문구. 표시용 name과 매칭용 anchor_text를
+      분리한 이유는 [meta-doc] 참고)
     """
     out: list[dict] = []
     seen: set[tuple] = set()
@@ -204,7 +259,7 @@ def extract_attachments(container, base_url: str) -> list[dict]:
                 for btn in cell.select("button.btnIco, a.btnIco"):
                     item = _dynamic_attachment(btn, doc_kind, base_url)
                     if item:
-                        add(item, ("dynamic", item["name"], item["raw_onclick"]))
+                        add(item, ("dynamic", item["name"], item["anchor_text"]))
 
     # 표 밖 느슨한 첨부 링크 (자료실/보도자료 목록형 페이지 등)
     for a in container.find_all("a", href=True):
@@ -219,7 +274,7 @@ def extract_attachments(container, base_url: str) -> list[dict]:
             continue
         item = _dynamic_attachment(btn, "기타", base_url)
         if item:
-            add(item, ("dynamic", item["name"], item["raw_onclick"]))
+            add(item, ("dynamic", item["name"], item["anchor_text"]))
 
     return out
 
@@ -234,8 +289,27 @@ def serialize_text(container) -> str:
     return "\n".join(lines)
 
 
-def parse_one(doc_id: str, html: str, meta: dict) -> dict:
+def parse_html(html: str, selector: str = CONTENT_SELECTOR) -> BeautifulSoup:
+    """lxml 우선 파싱, selector 미탐지 시 html.parser로 재시도.
+
+    일부 fins.kdic.or.kr 응답은 본인인증 위젯 스니펫이 <html>/<body>째로
+    중복 포함돼 온다(malformed). HTML5 스펙(WHATWG §13.2.6.4.7 "in body")은
+    이런 중복 body를 만나면 기존 body에 병합해 계속 파싱하도록 정의하는데,
+    Windows용 lxml 휠은 libxml2 2.11에 고정돼 있어(PyPI 최신판도 동일) 이
+    복구를 못 하고 두 번째(진짜) body를 통째로 버린다 — libxml2 2.14+
+    (macOS/manylinux 휠 기본값)부터 HTML5 준수 토크나이저로 정상 복구됨.
+    html.parser(표준 라이브러리)는 OS/휠 버전과 무관하게 이 복구를 해낸다.
+    """
     soup = BeautifulSoup(html, "lxml")
+    if soup.select_one(selector) is None:
+        alt = BeautifulSoup(html, "html.parser")
+        if alt.select_one(selector) is not None:
+            return alt
+    return soup
+
+
+def parse_one(doc_id: str, html: str, meta: dict) -> dict:
+    soup = parse_html(html)
     breadcrumb = extract_breadcrumb(soup)
     container = soup.select_one(CONTENT_SELECTOR)
     base_url = meta.get("final_url") or meta.get("source_url") or ""

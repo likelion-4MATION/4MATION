@@ -35,7 +35,7 @@ MIN_CHUNK = 60   # 표 사이 낀 짧은 헤딩/라인 파편 병합 임계
 SCHEMA_FIELDS = ["chunk_id", "parent_doc_id", "business_function", "sub_category",
                  "page_type", "coverage", "variant", "source_url",
                  "page_title", "breadcrumb", "text",
-                 "attachments", "has_attachments"]
+                 "attachments", "has_attachments", "attachment_count"]
 
 
 def is_faq(rec: dict) -> bool:
@@ -115,19 +115,25 @@ def _merge_small(chunks: list[str], min_len: int = MIN_CHUNK) -> list[str]:
 def match_attachments(chunk_text: str, page_attachments: list[dict]) -> list[dict]:
     """[meta-doc] 페이지 단위 첨부 후보 중, 이 청크 본문에 실제 등장하는 것만 골라 반환.
 
-    판단 기준: 첨부의 앵커 텍스트(name)가 청크 텍스트에 부분 문자열로 포함되는지.
-    parser.py의 serialize_text()는 일반 <a> 태그를 노이즈로 제거하지 않으므로, 앵커의
-    시각적 텍스트는 본문 어딘가에 그대로 남아있다 — 그 위치가 속한 청크가 "이 문서를
-    설명하는 청크"라고 판단한다.
+    판단 기준: 첨부의 anchor_text가 청크 텍스트에 부분 문자열로 포함되는지.
+    name(표시용 문서명)이 아니라 anchor_text로 매칭한다 — onclick_dynamic(버튼) 첨부는
+    parser.py의 serialize_text() 단계에서 버튼 자체가 통째로 제거되어 버튼 자신의
+    텍스트(name)는 본문에 남지 않고, 버튼을 감싸는 li/td의 안내 문구만 남기 때문
+    (parser.py의 _anchor_text 참고). direct 링크는 anchor_text=name이라 동일하게 동작.
+    구 파싱 데이터(anchor_text 없음) 호환을 위해 없으면 name으로 폴백한다.
 
-    한계(팀 확인 필요): name이 "다운로드"처럼 일반적인 문구면 무관한 청크에 오매칭될
-    수 있다. 실제 크롤 데이터로 돌려본 뒤 오매칭 사례가 보이면 name 대신 href의
+    한계(팀 확인 필요): anchor_text가 "다운로드"처럼 일반적인 문구면 무관한 청크에
+    오매칭될 수 있다. 실제 크롤 데이터로 돌려본 뒤 오매칭 사례가 보이면 href의
     파일명 쪽으로 기준을 좁히는 걸 권장.
     """
     if not page_attachments:
         return []
-    return [att for att in page_attachments
-            if att.get("name") and att["name"] in chunk_text]
+    out = []
+    for att in page_attachments:
+        anchor = att.get("anchor_text") or att.get("name")
+        if anchor and anchor in chunk_text:
+            out.append(att)
+    return out
 
 
 def make_chunks(rec: dict) -> list[dict]:
@@ -154,6 +160,7 @@ def make_chunks(rec: dict) -> list[dict]:
             "text": part,
             "attachments": chunk_atts,
             "has_attachments": bool(chunk_atts),
+            "attachment_count": len(chunk_atts),
         })
     return out
 
@@ -170,9 +177,14 @@ def main() -> None:
             skipped.append(rec["doc_id"])
         else:
             # [meta-doc] 페이지 첨부 중 어떤 청크에도 안 붙은 게 있으면 경고
+            # url이 None인 항목(onclick_dynamic)이 여러 개면 url만으로는 구분이 안 되므로
+            # (name, url, anchor_text) 조합을 키로 써서 정확히 식별한다.
+            def _att_key(a: dict) -> tuple:
+                return (a.get("name"), a.get("url"), a.get("anchor_text"))
+
             page_atts = rec.get("attachments", [])
-            matched_urls = {a["url"] for c in cs for a in c.get("attachments", [])}
-            unmatched = [a for a in page_atts if a["url"] not in matched_urls]
+            matched_keys = {_att_key(a) for c in cs for a in c.get("attachments", [])}
+            unmatched = [a for a in page_atts if _att_key(a) not in matched_keys]
             if unmatched:
                 names = [a["name"] for a in unmatched]
                 attach_warn.append(f"{rec['doc_id']}: 첨부 {len(unmatched)}건 청크 매칭 실패 — {names}")
