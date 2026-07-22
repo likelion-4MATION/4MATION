@@ -10,7 +10,7 @@ D1 통과 판정은 대표 6문항 top-3 적중 5+ (representative=True).
   정답 쏠림(문서 1개가 정답의 25%)·업무 편차(착오송금 44 vs 채무조정 10) 때문에
   micro만 보면 소수 그룹 성능이 종합 지표를 왜곡한다 → macro 병기로 편향 진단.
 
-사용: python eval.py   → 콘솔 요약 + data/eval_report.md
+사용: python eval.py   → 콘솔 요약 + data/eval_report.md (테스트셋 400건 기준)
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import json
 
 import rag
 
-TESTSET = "data/testset_natural_300_v2.jsonl"
+TESTSET = "data/testset_natural_400_v3.jsonl"
 REPORT = "data/eval_report.md"
 MODES = ["dense", "hybrid"]
 KMAX = 10

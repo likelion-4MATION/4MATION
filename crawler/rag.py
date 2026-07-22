@@ -1,9 +1,9 @@
 """RAG 검색 공용 모듈 — 임베딩 · dense(FAISS) · BM25(kiwi) · 하이브리드(RRF).
 
-- 임베딩: sentence-transformers `jhgan/ko-sroberta-multitask` (로컬 한국어 SBERT, 768d).
+- 임베딩: sentence-transformers `BAAI/bge-m3` (다국어, 1024d).
 - dense: FAISS IndexFlatIP + 정규화 임베딩(= 코사인).
 - sparse: rank_bm25 BM25Okapi, kiwipiepy 형태소 토큰.
-- 융합: RRF(k=60). 리랭킹·파라미터 튜닝은 D1 범위 밖(D2 판단).
+- 융합: RRF(k=5, dw=2.0, sw=1.0) — 400건 테스트셋 그리드서치로 튜닝(data/rrf_grid_log.txt).
 
 Store: doc_id 단위 upsert + content_hash 스킵 (recollect 재수집 트리거용).
 """
@@ -17,12 +17,29 @@ import pickle
 import faiss
 import numpy as np
 
-MODEL_NAME = "jhgan/ko-sroberta-multitask"
+MODEL_NAME = "BAAI/bge-m3"
+RERANKER_NAME = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 INDEX_DIR = "data/index"
-EMB_DIM = 768
+EMB_DIM = 1024
 
 _model = None
 _kiwi = None
+_reranker = None
+
+
+def get_reranker():
+    """경량 다국어 cross-encoder (재랭킹 전용, bi-encoder와 별도 모델).
+
+    근소한 점수차로 순위가 갈리는 짧고 유사한 문서들(예: 착오송금 신청방법/절차/
+    신청대상처럼 문구가 겹치는 소형 문서군)을 질의-문서 쌍으로 직접 채점해 재정렬한다.
+    bge-reranker-base(278M) 대비 약 6.5배 빠름(쌍당 실측 170ms vs 1.1초) — top-5
+    재랭킹 기준 질의당 1초 미만으로 대화형 사용에 적합.
+    """
+    global _reranker
+    if _reranker is None:
+        from sentence_transformers import CrossEncoder
+        _reranker = CrossEncoder(RERANKER_NAME, max_length=512)
+    return _reranker
 
 
 def get_model():
@@ -161,23 +178,72 @@ class Searcher:
         order = np.argsort(scores)[::-1][:k]
         return [(int(i), float(scores[i])) for i in order]
 
-    def hybrid(self, query: str, k: int = 10, pool: int = 20,
-               rrf_k: int = 60) -> list[tuple[int, float]]:
+    def hybrid(self, query: str, k: int = 10, pool: int = 30,
+               rrf_k: int = 5, dw: float = 2.0, sw: float = 1.0,
+               max_per_doc: int = 1) -> list[tuple[int, float]]:
+        """dense+sparse RRF 융합 후 문서당 max_per_doc개로 캡.
+
+        청크 수가 많은 문서(대형 FAQ 등)가 RRF 점수 우위로 top-k를 독점하는
+        문제 대응 — 같은 parent_doc_id의 2번째 이후 청크는 건너뛰고 다음
+        순위 문서로 채운다(단순 top-1 개별 순위는 그대로 보존됨).
+        max_per_doc=0이면 캡 없이 기존 동작.
+
+        임베딩 모델을 jhgan/ko-sroberta-multitask -> BAAI/bge-m3(1024d)로
+        교체하면서 RRF 파라미터를 다시 그리드서치(rrf_k×dw/sw×max_per_doc,
+        60개 조합)로 재튜닝. rrf_k=5, dw=2.0(dense 가중치 상향), sw=1.0에서
+        hit@3 0.830->0.930(+0.100), MRR 0.706->0.800으로 가장 우수함을 400건
+        테스트셋으로 확인(dense 단독도 hit@3 0.665->0.848로 bge-m3가 기존
+        모델보다 훨씬 강함 — dw를 sw보다 높게 주는 것이 합리적). data/rrf_grid_log.txt 참고.
+        """
         d = self.dense(query, pool)
         s = self.sparse(query, pool)
         rrf: dict[int, float] = {}
         for rank, (idx, _) in enumerate(d):
-            rrf[idx] = rrf.get(idx, 0.0) + 1.0 / (rrf_k + rank + 1)
+            rrf[idx] = rrf.get(idx, 0.0) + dw / (rrf_k + rank + 1)
         for rank, (idx, _) in enumerate(s):
-            rrf[idx] = rrf.get(idx, 0.0) + 1.0 / (rrf_k + rank + 1)
-        ranked = sorted(rrf.items(), key=lambda x: x[1], reverse=True)[:k]
-        return [(idx, score) for idx, score in ranked]
+            rrf[idx] = rrf.get(idx, 0.0) + sw / (rrf_k + rank + 1)
+        ranked = sorted(rrf.items(), key=lambda x: x[1], reverse=True)
+        if not max_per_doc:
+            return ranked[:k]
+        seen: dict[str, int] = {}
+        out: list[tuple[int, float]] = []
+        for idx, score in ranked:
+            doc_id = self.chunks[idx]["parent_doc_id"]
+            if seen.get(doc_id, 0) >= max_per_doc:
+                continue
+            seen[doc_id] = seen.get(doc_id, 0) + 1
+            out.append((idx, score))
+            if len(out) >= k:
+                break
+        return out
 
-    def search(self, query: str, k: int = 5, mode: str = "hybrid") -> list[dict]:
+    def rerank(self, query: str, hits: list[tuple[int, float]], k: int = 5,
+               pool: int = 5) -> list[tuple[int, float]]:
+        """hits(이미 정렬된 후보) 중 상위 pool개만 cross-encoder로 재정렬.
+
+        pool을 작게(기본 5) 유지하는 이유: 재랭킹 비용은 후보 수에 선형 비례한다.
+        1심 검색(dense+bm25 RRF)이 이미 정답을 pool 안에 들여놨는지가 재랭킹
+        효과의 전제이므로, pool 밖 후보는 원래 순서 뒤에 그대로 이어붙인다.
+        """
+        head, tail = hits[:pool], hits[pool:]
+        if not head:
+            return hits[:k]
+        ce = get_reranker()
+        pairs = [[query, chunk_embed_text(self.chunks[idx])] for idx, _ in head]
+        scores = ce.predict(pairs)
+        order = sorted(range(len(head)), key=lambda i: scores[i], reverse=True)
+        reranked = [head[i] for i in order]
+        return (reranked + tail)[:k]
+
+    def search(self, query: str, k: int = 5, mode: str = "hybrid",
+               rerank_pool: int = 5) -> list[dict]:
         if mode == "dense":
             hits = self.dense(query, k)
         elif mode == "bm25":
             hits = self.sparse(query, k)
+        elif mode == "hybrid_rerank":
+            hits = self.hybrid(query, max(k, rerank_pool, 10))
+            hits = self.rerank(query, hits, k, pool=rerank_pool)
         else:
             hits = self.hybrid(query, k)
         out = []

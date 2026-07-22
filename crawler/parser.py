@@ -109,8 +109,27 @@ def serialize_text(container) -> str:
     return "\n".join(lines)
 
 
-def parse_one(doc_id: str, html: str, meta: dict) -> dict:
+def parse_html(html: str, selector: str = CONTENT_SELECTOR) -> BeautifulSoup:
+    """lxml 우선 파싱, `selector` 미탐지 시 html.parser로 재시도.
+
+    일부 fins.kdic.or.kr 응답은 본인인증 위젯 스니펫이 <html>/<body>째로
+    중복 포함돼 온다(malformed). HTML5 스펙(WHATWG §13.2.6.4.7 "in body")은
+    이런 중복 body를 만나면 기존 body에 병합해 계속 파싱하도록 정의하는데,
+    Windows용 lxml 휠은 libxml2 2.11에 고정돼 있어(PyPI 최신판도 동일) 이
+    복구를 못 하고 두 번째(진짜) body를 통째로 버린다 — libxml2 2.14+
+    (macOS/manylinux 휠 기본값)부터 HTML5 준수 토크나이저로 정상 복구됨.
+    html.parser(표준 라이브러리)는 OS/휠 버전과 무관하게 이 복구를 해낸다.
+    """
     soup = BeautifulSoup(html, "lxml")
+    if soup.select_one(selector) is None:
+        alt = BeautifulSoup(html, "html.parser")
+        if alt.select_one(selector) is not None:
+            return alt
+    return soup
+
+
+def parse_one(doc_id: str, html: str, meta: dict) -> dict:
+    soup = parse_html(html)
     breadcrumb = extract_breadcrumb(soup)
 
     container = soup.select_one(CONTENT_SELECTOR)

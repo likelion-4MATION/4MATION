@@ -1,0 +1,4 @@
+corpus_parent_docs=38
+total_testset=150
+questions_with_ALL_GT_missing_from_corpus=0
+---- GT docs referenced by testset but NOT in corpus (count x id) ----

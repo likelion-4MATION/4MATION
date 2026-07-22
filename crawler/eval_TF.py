@@ -11,10 +11,17 @@ D1 통과 판정은 대표 6문항 top-3 적중 5+ (representative=True).
   micro만 보면 소수 그룹 성능이 종합 지표를 왜곡한다 → macro 병기로 편향 진단.
 
 산출물:
-- data/eval_report.md    : 종합 지표 리포트(기존)
-- data/error_analysis.md : 미적중(top-3 밖) 문항의 top-3 혼입 원인 분석(신규)
+- data/eval_report[_<testset>].md    : 종합 지표 리포트(기존)
+- data/error_analysis[_<testset>].md : 미적중(top-3 밖) 문항의 top-3 혼입 원인 분석(신규)
 
-사용: python eval.py   → 콘솔 요약 + 위 두 리포트
+사용: python eval_TF.py [testset경로]
+  인자 없으면 기본 data/testset_natural_400_v3.jsonl 평가,
+  리포트도 기본 파일명(eval_report.md / error_analysis.md) 그대로 사용.
+  다른 testset 경로를 넘기면 리포트 파일명에 해당 testset stem이 붙어
+  기본(400건) 리포트를 덮어쓰지 않음.
+  예: python eval_TF.py data/testset_natural_300_v2.jsonl
+      → data/eval_report_testset_natural_300_v2.md
+        data/error_analysis_testset_natural_300_v2.md
 """
 
 from __future__ import annotations
@@ -22,12 +29,15 @@ from __future__ import annotations
 import collections
 import json
 import pathlib
+import sys
 
 import rag
 
-TESTSET = "data/testset_natural_300_v2.jsonl"
-REPORT = "data/eval_report.md"
-ERR_REPORT = "data/error_analysis.md"
+DEFAULT_TESTSET = "data/testset_natural_400_v3.jsonl"
+TESTSET = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_TESTSET
+_suffix = "" if TESTSET == DEFAULT_TESTSET else f"_{pathlib.Path(TESTSET).stem}"
+REPORT = f"data/eval_report{_suffix}.md"
+ERR_REPORT = f"data/error_analysis{_suffix}.md"
 MODES = ["dense", "hybrid"]
 KMAX = 10
 
@@ -108,7 +118,7 @@ def contamination_check(searcher: rag.Searcher) -> dict:
 
 def write_report(results: dict[str, dict], rep6: dict, contam: dict) -> None:
     L = ["# 검색 평가 리포트 (D1)", "",
-         f"- 평가셋: {results['dense']['n']}건 · 임베딩: `{rag.MODEL_NAME}` · 융합: RRF(k=60)",
+         f"- 평가셋: {results['dense']['n']}건 · 임베딩: `{rag.MODEL_NAME}` · 융합: RRF(k={rag.Searcher.hybrid.__defaults__[2]})",
          "", "## 전체 지표 (dense vs hybrid) — micro(문항 평균)", "",
          "| mode | hit@1 | hit@3 | MRR |", "|---|---|---|---|"]
     for m in MODES:
@@ -245,7 +255,7 @@ def main() -> None:
     write_report(results, rep6, contam)
     err = write_error_analysis(results)
 
-    print(f"평가셋 {len(testset)}건 · 임베딩 {rag.MODEL_NAME} · RRF(k=60)\n")
+    print(f"평가셋 {len(testset)}건 · 임베딩 {rag.MODEL_NAME} · RRF(k={rag.Searcher.hybrid.__defaults__[2]})\n")
     print(f"{'mode':8} {'hit@1':>7} {'hit@3':>7} {'MRR':>7}")
     for m in MODES:
         r = results[m]

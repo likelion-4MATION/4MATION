@@ -1,58 +1,20 @@
 {
-  "run_at": "2026-07-13T08:10:35.108328+00:00",
+  "run_at": "2026-07-21T07:02:43.124865+00:00",
   "manifest": "crawl_manifest.csv",
   "total": 38,
   "counts": {
-    "ok": 33,
-    "robots_blocked": 5
+    "ok": 38
   },
-  "robots_blocked": [
-    "https://fins.kdic.or.kr/cm/bbs/selectFaqNramtAply.do",
-    "https://fins.kdic.or.kr/cm/bbs/selectFaqMsdrGvbkAply.do",
-    "https://fins.kdic.or.kr/cm/bbs/selectFaqLbltInfoInq.do",
-    "https://fins.kdic.or.kr/cm/bbs/selectFaqCncmPrptDclr.do",
-    "https://fins.kdic.or.kr/cm/bbs/selectFaqTop10.do"
-  ],
+  "robots_blocked": [],
   "error_pages": [],
-  "failures": [
-    {
-      "url": "https://fins.kdic.or.kr/cm/bbs/selectFaqNramtAply.do",
-      "doc_id": "kdic-fins-cm-bbs-selectFaqNramtAply",
-      "robots_status": "disallowed",
-      "status": "robots_blocked"
-    },
-    {
-      "url": "https://fins.kdic.or.kr/cm/bbs/selectFaqMsdrGvbkAply.do",
-      "doc_id": "kdic-fins-cm-bbs-selectFaqMsdrGvbkAply",
-      "robots_status": "disallowed",
-      "status": "robots_blocked"
-    },
-    {
-      "url": "https://fins.kdic.or.kr/cm/bbs/selectFaqLbltInfoInq.do",
-      "doc_id": "kdic-fins-cm-bbs-selectFaqLbltInfoInq",
-      "robots_status": "disallowed",
-      "status": "robots_blocked"
-    },
-    {
-      "url": "https://fins.kdic.or.kr/cm/bbs/selectFaqCncmPrptDclr.do",
-      "doc_id": "kdic-fins-cm-bbs-selectFaqCncmPrptDclr",
-      "robots_status": "disallowed",
-      "status": "robots_blocked"
-    },
-    {
-      "url": "https://fins.kdic.or.kr/cm/bbs/selectFaqTop10.do",
-      "doc_id": "kdic-fins-cm-bbs-selectFaqTop10",
-      "robots_status": "disallowed",
-      "status": "robots_blocked"
-    }
-  ],
+  "failures": [],
   "results": [
     {
       "url": "https://www.kdic.or.kr/sp/dpstrprot/ProtSyst/selectScrn.do",
       "doc_id": "kdic-www-sp-dpstrprot-ProtSyst-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도",
       "http_status": 200,
       "text_len": 9244
     },
@@ -61,16 +23,16 @@
       "doc_id": "kdic-www-sp-dpstrprot-ProtSystProtLmts-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t보호한도",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t보호한도",
       "http_status": 200,
-      "text_len": 9653
+      "text_len": 9654
     },
     {
       "url": "https://www.kdic.or.kr/sp/dpstrprot/selectProtSystProtSumr.do",
       "doc_id": "kdic-www-sp-dpstrprot-selectProtSystProtSumr",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t보호대상\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t금융회사\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t개요",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t보호대상\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t금융회사\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t개요",
       "http_status": 200,
       "text_len": 9576
     },
@@ -79,7 +41,7 @@
       "doc_id": "kdic-www-sp-dpstrprot-selectProtSystProtTrgtPrdctSumr",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t보호대상\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t금융상품\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t개요",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t보호대상\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t금융상품\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t개요",
       "http_status": 200,
       "text_len": 10848
     },
@@ -88,7 +50,7 @@
       "doc_id": "kdic-www-sp-dpstrprot-ProtSystFaq-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도 FAQ",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도 FAQ",
       "http_status": 200,
       "text_len": 12601
     },
@@ -97,7 +59,7 @@
       "doc_id": "kdic-www-sp-dpstrprot-ProtSystProtGudn-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t표시·설명·확인 제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t표시·설명·확인 제도 안내",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t표시·설명·확인 제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t표시·설명·확인 제도 안내",
       "http_status": 200,
       "text_len": 9945
     },
@@ -106,7 +68,7 @@
       "doc_id": "kdic-www-sp-dpstrprot-DpsmIbamtExpln-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금보험금 안내\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금보험금이란?",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금보험금 안내\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금보험금이란?",
       "http_status": 200,
       "text_len": 10972
     },
@@ -115,7 +77,7 @@
       "doc_id": "kdic-www-sp-dpstrprot-DpsmIbamtAplyProc-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금보험금 안내\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금보험금 신청 절차\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금보험금 신청절차",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금보험금 안내\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금보험금 신청 절차\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금보험금 신청절차",
       "http_status": 200,
       "text_len": 9871
     },
@@ -124,7 +86,7 @@
       "doc_id": "kdic-www-sp-dpstrprot-DpsmIbamtAplyPossDcmnt-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금보험금 안내\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t신청시 구비서류",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금보험금 안내\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t신청시 구비서류",
       "http_status": 200,
       "text_len": 10926
     },
@@ -133,7 +95,7 @@
       "doc_id": "kdic-www-sp-dpstrprot-ProtSystNramtInqAplyNramtGudn-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t미수령금 통합조회/신청\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t고객미수령금",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t미수령금 통합조회/신청\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t고객미수령금",
       "http_status": 200,
       "text_len": 9257
     },
@@ -142,7 +104,7 @@
       "doc_id": "kdic-www-sp-dpstrprot-ProtSystHrpeHistInq-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t예금자보호제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t미수령금 통합조회/신청\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t상속인 금융거래조회",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t예금자보호제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t미수령금 통합조회/신청\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t상속인 금융거래조회",
       "http_status": 200,
       "text_len": 9787
     },
@@ -158,15 +120,18 @@
     {
       "url": "https://fins.kdic.or.kr/cm/bbs/selectFaqNramtAply.do",
       "doc_id": "kdic-fins-cm-bbs-selectFaqNramtAply",
-      "robots_status": "disallowed",
-      "status": "robots_blocked"
+      "robots_status": "allowed",
+      "status": "ok",
+      "title": "금융안심포털",
+      "http_status": 200,
+      "text_len": 15241
     },
     {
       "url": "https://www.kdic.or.kr/sp/kmrs/kmrsItrd/selectScrn.do",
       "doc_id": "kdic-www-sp-kmrs-kmrsItrd-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t착오송금 반환지원제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t착오송금반환지원 제도란",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t착오송금 반환지원제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t착오송금반환지원 제도란",
       "http_status": 200,
       "text_len": 8646
     },
@@ -175,7 +140,7 @@
       "doc_id": "kdic-www-sp-kmrs-kmrsItrdProc-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t착오송금 반환지원제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t착오송금반환지원 절차",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t착오송금 반환지원제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t착오송금반환지원 절차",
       "http_status": 200,
       "text_len": 9119
     },
@@ -184,7 +149,7 @@
       "doc_id": "kdic-www-sp-kmrs-kmrsItrdAplyTrgt-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t착오송금 반환지원제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t착오송금반환지원 신청대상",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t착오송금 반환지원제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t착오송금반환지원 신청대상",
       "http_status": 200,
       "text_len": 8941
     },
@@ -193,7 +158,7 @@
       "doc_id": "kdic-www-sp-kmrs-kmrsItrdAplyMthd-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t착오송금 반환지원제도\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t착오송금반환지원 신청방법",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t착오송금 반환지원제도\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t착오송금반환지원 신청방법",
       "http_status": 200,
       "text_len": 8774
     },
@@ -263,15 +228,18 @@
     {
       "url": "https://fins.kdic.or.kr/cm/bbs/selectFaqMsdrGvbkAply.do",
       "doc_id": "kdic-fins-cm-bbs-selectFaqMsdrGvbkAply",
-      "robots_status": "disallowed",
-      "status": "robots_blocked"
+      "robots_status": "allowed",
+      "status": "ok",
+      "title": "금융안심포털",
+      "http_status": 200,
+      "text_len": 4682
     },
     {
       "url": "https://www.kdic.or.kr/rb/lbltajmt/LbltAjmtSprtLbltAjmtSyst/selectScrn.do",
       "doc_id": "kdic-www-rb-lbltajmt-LbltAjmtSprtLbltAjmtSyst-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t채무조정 재기지원\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t채무조정제도",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t채무조정 재기지원\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t채무조정제도",
       "http_status": 200,
       "text_len": 10334
     },
@@ -280,7 +248,7 @@
       "doc_id": "kdic-www-rb-lbltajmt-LbltAjmtSprtLbltInfoInqDscsnAply-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t채무조정 재기지원\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t채무정보 조회 ＆ 상담신청",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t채무조정 재기지원\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t채무정보 조회 ＆ 상담신청",
       "http_status": 200,
       "text_len": 8820
     },
@@ -289,7 +257,7 @@
       "doc_id": "kdic-www-rb-lbltajmt-LbltAjmtSprtCredRcvrySprt-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t채무조정 재기지원\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t신용회복 지원",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t채무조정 재기지원\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t신용회복 지원",
       "http_status": 200,
       "text_len": 10884
     },
@@ -298,7 +266,7 @@
       "doc_id": "kdic-www-rb-lbltajmt-LbltAjmtSprtPsnRg-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t채무조정 재기지원\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t개인회생",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t채무조정 재기지원\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t개인회생",
       "http_status": 200,
       "text_len": 10427
     },
@@ -307,7 +275,7 @@
       "doc_id": "kdic-www-rb-lbltajmt-LbltAjmtSprtPsnBr-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t채무조정 재기지원\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t파산면책",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t채무조정 재기지원\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t파산면책",
       "http_status": 200,
       "text_len": 11489
     },
@@ -323,15 +291,18 @@
     {
       "url": "https://fins.kdic.or.kr/cm/bbs/selectFaqLbltInfoInq.do",
       "doc_id": "kdic-fins-cm-bbs-selectFaqLbltInfoInq",
-      "robots_status": "disallowed",
-      "status": "robots_blocked"
+      "robots_status": "allowed",
+      "status": "ok",
+      "title": "금융안심포털",
+      "http_status": 200,
+      "text_len": 3419
     },
     {
       "url": "https://www.kdic.or.kr/sp/sprtfund/SprtFndCncmDclrGudn/selectScrn.do",
       "doc_id": "kdic-www-sp-sprtfund-SprtFndCncmDclrGudn-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t지원자금관리\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t부실책임조사\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t금융부실관련자 은닉재산신고\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t신고센터",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t지원자금관리\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t부실책임조사\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t금융부실관련자 은닉재산신고\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t신고센터",
       "http_status": 200,
       "text_len": 10842
     },
@@ -340,7 +311,7 @@
       "doc_id": "kdic-www-sp-sprtfund-SprtCncmDclrInqGudn-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t지원자금관리\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t부실책임조사\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t금융부실관련자 은닉재산신고\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t신고 및 조회",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t지원자금관리\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t부실책임조사\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t금융부실관련자 은닉재산신고\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t신고 및 조회",
       "http_status": 200,
       "text_len": 9232
     },
@@ -349,28 +320,34 @@
       "doc_id": "kdic-www-sp-sprtfund-SprtFndCncmDclrFaq-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t지원자금관리\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t부실책임조사\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t금융부실관련자 은닉재산신고\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\tFAQ",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t지원자금관리\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t부실책임조사\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t금융부실관련자 은닉재산신고\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\tFAQ",
       "http_status": 200,
       "text_len": 11391
     },
     {
       "url": "https://fins.kdic.or.kr/cm/bbs/selectFaqCncmPrptDclr.do",
       "doc_id": "kdic-fins-cm-bbs-selectFaqCncmPrptDclr",
-      "robots_status": "disallowed",
-      "status": "robots_blocked"
+      "robots_status": "allowed",
+      "status": "ok",
+      "title": "금융안심포털",
+      "http_status": 200,
+      "text_len": 5099
     },
     {
       "url": "https://fins.kdic.or.kr/cm/bbs/selectFaqTop10.do",
       "doc_id": "kdic-fins-cm-bbs-selectFaqTop10",
-      "robots_status": "disallowed",
-      "status": "robots_blocked"
+      "robots_status": "allowed",
+      "status": "ok",
+      "title": "금융안심포털",
+      "http_status": 200,
+      "text_len": 4177
     },
     {
       "url": "https://www.kdic.or.kr/sp/sprtfund/SprtFndDebtDlngAplyGudn/selectScrn.do",
       "doc_id": "kdic-www-sp-sprtfund-SprtFndDebtDlngAplyGudn-selectScrn",
       "robots_status": "allowed",
       "status": "ok",
-      "title": "제도·정책\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t지원자금관리\n\t\t\t\t\t\n\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\n\t\t\t\t\t\t부채증명원/금융거래정보신청",
+      "title": "제도·정책\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t지원자금관리\r\n\t\t\t\t\t\r\n\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\r\n\t\t\t\t\t\t부채증명원/금융거래정보신청",
       "http_status": 200,
       "text_len": 9473
     }
