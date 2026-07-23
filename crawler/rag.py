@@ -21,6 +21,10 @@ MODEL_NAME = "BAAI/bge-m3"
 RERANKER_NAME = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 INDEX_DIR = "data/index"
 EMB_DIM = 1024
+BM25_B = 0.85
+"""BM25 길이정규화(rank_bm25 기본 0.75). 착오송금 hub 문서(장문 청크) 억제 목적으로
+0.0~1.0 그리드서치(400건) — b=0.85가 기본값 대비 6개 지표(전체/착오송금 hit@1·hit@3·MRR)
+중 5개 개선·1개(착오송금 hit@3) 동률로 유일하게 열세가 없어 채택. DECISIONS.md 참고."""
 
 _model = None
 _kiwi = None
@@ -75,10 +79,32 @@ def embed_texts(texts: list[str]) -> np.ndarray:
     return np.asarray(e, dtype="float32")
 
 
-def chunk_embed_text(chunk: dict) -> str:
-    """검색 임베딩 입력 — 제목 맥락을 본문 앞에 덧붙임."""
-    title = chunk.get("page_title", "")
-    return f"{title}\n{chunk['text']}" if title else chunk["text"]
+def chunk_embed_text(chunk: dict, disambiguate: bool = False) -> str:
+    """검색 임베딩 입력(dense+BM25 공용) — 제목 맥락을 본문 앞에 덧붙임.
+
+    disambiguate=True: page_title이 다른 문서와 충돌하는 소수 케이스 전용으로
+    sub_category(브레드크럼[1:] 조인, 예: "착오송금반환지원 > 착오송금인 > 유의사항")를
+    prefix로 사용 — 파서가 브레드크럼에서 그대로 추출한 기존 필드라 창작 없음(규칙 7 정합).
+
+    전 청크 일괄 적용은 시도 후 폐기: 400건 평가에서 FAQ류 문서(청크 다수가
+    동일 sub_category를 공유)가 상위 브레드크럼 반복으로 임베딩이 희석돼
+    hit@1 .672->.650·MRR .800->.787 하락(은닉재산 신고 hit@1 .548->.371 최대
+    타격, DECISIONS.md 참고). 실제 page_title 충돌은 38문서 중 2쌍뿐이라
+    _colliding_titles()로 걸러낸 해당 청크에만 좁혀 적용.
+    """
+    if disambiguate:
+        prefix = chunk.get("sub_category") or chunk.get("page_title", "")
+    else:
+        prefix = chunk.get("page_title", "")
+    return f"{prefix}\n{chunk['text']}" if prefix else chunk["text"]
+
+
+def _colliding_titles(chunks: list[dict]) -> set[str]:
+    """서로 다른 문서(parent_doc_id)가 동일 page_title을 쓰는 제목 집합."""
+    by_title: dict[str, set[str]] = {}
+    for c in chunks:
+        by_title.setdefault(c.get("page_title", ""), set()).add(c["parent_doc_id"])
+    return {t for t, docs in by_title.items() if len(docs) > 1}
 
 
 class Store:
@@ -128,6 +154,16 @@ class Store:
     # ── 인덱스 빌드 + 영속화 ─────────────────────────────────
     def build_and_save(self) -> None:
         self.dir.mkdir(parents=True, exist_ok=True)
+        colliding = _colliding_titles(self.chunks)
+
+        # 제목 충돌 청크만 sub_category 포함해 재임베딩 (upsert 시점엔 다른
+        # 문서의 존재를 알 수 없어 doc_id 단위 upsert와 무관하게 저장 직전 일괄 처리).
+        if colliding and self.embs is not None and len(self.embs):
+            idxs = [i for i, c in enumerate(self.chunks) if c.get("page_title", "") in colliding]
+            if idxs:
+                texts = [chunk_embed_text(self.chunks[i], disambiguate=True) for i in idxs]
+                self.embs[idxs] = embed_texts(texts)
+
         n = len(self.chunks)
         embs = self.embs if self.embs is not None else np.zeros((0, EMB_DIM), "float32")
 
@@ -138,8 +174,9 @@ class Store:
         np.save(self.dir / "emb.npy", embs)
 
         from rank_bm25 import BM25Okapi
-        corpus = [tokenize(c["text"]) for c in self.chunks]
-        bm25 = BM25Okapi(corpus) if corpus else None
+        corpus = [tokenize(chunk_embed_text(c, disambiguate=c.get("page_title", "") in colliding))
+                  for c in self.chunks]
+        bm25 = BM25Okapi(corpus, b=BM25_B) if corpus else None
         with open(self.dir / "bm25.pkl", "wb") as f:
             pickle.dump({"bm25": bm25, "corpus_len": n}, f)
 
@@ -162,6 +199,7 @@ class Searcher:
         self.dir = pathlib.Path(index_dir)
         self.chunks = [json.loads(l) for l in
                        (self.dir / "chunk_meta.jsonl").read_text(encoding="utf-8").splitlines() if l]
+        self._colliding = _colliding_titles(self.chunks)
         self.index = faiss.read_index(str(self.dir / "faiss.index"))
         with open(self.dir / "bm25.pkl", "rb") as f:
             self.bm25 = pickle.load(f)["bm25"]
@@ -229,7 +267,9 @@ class Searcher:
         if not head:
             return hits[:k]
         ce = get_reranker()
-        pairs = [[query, chunk_embed_text(self.chunks[idx])] for idx, _ in head]
+        pairs = [[query, chunk_embed_text(
+            self.chunks[idx], disambiguate=self.chunks[idx].get("page_title", "") in self._colliding)]
+            for idx, _ in head]
         scores = ce.predict(pairs)
         order = sorted(range(len(head)), key=lambda i: scores[i], reverse=True)
         reranked = [head[i] for i in order]

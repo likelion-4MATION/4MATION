@@ -1,7 +1,9 @@
 """청킹 + 스키마 부착 → data/chunks.jsonl
 
-설정(고정, 03 문서 노션 권고 준용):
-- CHUNK_SIZE=800자, OVERLAP=100자 (문단/섹션 경계 우선)
+설정:
+- CHUNK_SIZE=500자(2026-07-23 800→500, 착오송금 hub 문서 완화 목적 그리드서치
+  400/500/600/800 검증 후 채택 — DECISIONS.md 참고. 롤백 시 data/index_backup_chunk800/
+  참조), OVERLAP=100자(변경 없음, 03 문서 노션 권고값 유지, 문단/섹션 경계 우선)
 - 표(연속 "cell | cell" 라인)는 절대 중간분할 금지 → 단독 청크
 - FAQ 페이지(page_type/title에 'FAQ')는 질문-답변 1쌍 = 1청크 (크기 무시), '열기' 토글 제거
 
@@ -19,7 +21,7 @@ import sys
 PARSED_DIR = "data/parsed"
 OUT_PATH = "data/chunks.jsonl"
 
-CHUNK_SIZE = 800
+CHUNK_SIZE = 500
 OVERLAP = 100
 MIN_CHUNK = 60   # 표 사이 낀 짧은 헤딩/라인 파편 병합 임계
 
