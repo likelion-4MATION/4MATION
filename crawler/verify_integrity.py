@@ -15,9 +15,13 @@ import sys
 
 import numpy as np
 
+import rag
+
 DATA = pathlib.Path("data")
 IDX = DATA / "index"
-EMB_DIM = 768
+# 하드코딩 금지 — 과거 EMB_DIM=768(ko-sroberta 시절)로 방치돼 bge-m3(1024d) 전환
+# 후에도 안 고쳐진 채 있었던 것을 발견(모델 교체 안전성 점검 중). 실제 MODEL_NAME의
+# 임베딩 차원을 그때그때 조회해 항상 최신 모델 기준으로 검증한다.
 
 
 def _lines(p: pathlib.Path) -> int:
@@ -48,7 +52,9 @@ def main() -> int:
     for k, v in counts.items():
         print(f"    {k:18}: {v}")
     check("청크 카운트 5종 일치", len(set(counts.values())) == 1)
-    check("임베딩 차원 == 768", emb_dim == EMB_DIM, f"dim={emb_dim}")
+    expected_dim = rag.get_emb_dim()
+    check(f"임베딩 차원 == {expected_dim}({rag.MODEL_NAME})", emb_dim == expected_dim,
+          f"dim={emb_dim}")
 
     # ── 문서 단위: raw/parsed/meta/docs.json/고유 parent ──────
     ch = [json.loads(l) for l in open(DATA / "chunks.jsonl", encoding="utf-8")]
