@@ -17,13 +17,17 @@
   1) www.kdic.or.kr 자료실/보도자료류: <a href="...pdf/hwp">  → 절대 URL을 그대로 확보 가능
      (link_type="direct", url 채워짐).
   2) fins.kdic.or.kr 포털(구비서류안내 등): <button class="btnIco icoHwp/icoPdf"
-     onclick="gfn_downloadFile(encId, encName)">  → href가 아예 없고, 실제 다운로드는
-     POST /api/cm/file/downloadFile.do 에 세션 종속(추정) 암호화 파라미터가 필요.
-     정적 HTML만으로는 절대경로 URL을 만들 수 없다. [meta-doc] 하지만 챗봇은 문서
-     파일 자체를 반환할 필요 없이 "문서를 찾을 수 있는 URL"만 안내하면 되므로,
-     link_type="onclick_dynamic" 태깅하고 url에는 실제 파일 대신 안내 페이지 자체
-     URL을 채운다(답변 시 "이 페이지에서 받으세요" 용도). 실제 파일을 재구성해
-     직접 서빙하기 위한 동적 재수집(P2+) 준비용 raw_onclick 원본은 보존하지 않는다.
+     onclick="gfn_downloadFile(encId, encName)">  → href가 없다. [meta-doc 후속]
+     실사 결과 encId/encName은 세션 종속이 아니라 페이지 렌더마다 고정된 토큰이고,
+     그대로 POST {www.kdic.or.kr}/cm/file/downloadFile.do 또는
+     {fins.kdic.or.kr}/api/cm/file/downloadFile.do (도메인별로 경로가 다름) 에
+     JSON 바디로 되돌려 보내면 실파일을 받을 수 있음이 확인됨(fetch_attachments.py).
+     그래서 이 토큰(enc_real/enc_temp)을 attachments에 그대로 보존한다 — parser.py는
+     여전히 raw HTML만 읽고 네트워크 요청을 하지 않으므로 결정론성은 안 깨진다.
+     실다운로드·로컬 저장은 fetch_attachments.py, parsed 첨부와 로컬 파일 연결은
+     link_files.py가 각각 별도 단계로 담당한다(자세한 이유: 대신 하드코딩된 링크가
+     아니라 doc_id+토큰으로 정확히 1:1 매칭하기 위함 — anchor_text 같은 표시 텍스트
+     기반 매칭은 동일 문구가 반복되는 페이지에서 모호해질 수 있음).
   doc_kind는 첨부가 속한 표의 헤더 텍스트(예: '관련 서식')를 규칙 매칭해서 부여.
   표 밖에 있는 느슨한 첨부 링크는 doc_kind="기타"로 처리.
 """
@@ -61,6 +65,12 @@ COVERAGE_ANNAE = {
 }
 
 ATTACH_RE = re.compile(r"\.(hwp|hwpx|pdf|xlsx?|docx?|pptx?|zip|txt|csv)(\?|$)", re.I)
+
+# onclick="gfn_downloadFile('encId', 'encName')" 에서 두 토큰을 그대로 추출.
+# fetch_attachments.py가 실다운로드에 그대로 재사용(도메인별 엔드포인트로 POST).
+ONCLICK_RE = re.compile(
+    r"gfn_downloadFile\(\s*'((?:[^'\\]|\\.)*)'\s*,\s*'((?:[^'\\]|\\.)*)'\s*\)"
+)
 
 # 표 헤더 텍스트 → doc_kind 규칙 매핑 (우선순위 순서대로 첫 매치 채택)
 DOC_KIND_RULES: list[tuple[re.Pattern, str]] = [
@@ -153,11 +163,17 @@ def _anchor_text(el) -> str:
       - 없고 <tr> 조상이 있으면: table_to_lines()의 _row_line()과 동일하게
         같은 행의 다른 셀(문서명이 버튼과 분리된 셀에 있는 경우)까지 포함해
         "cell | cell" 한 줄로 결합. (버튼 셀 자체엔 텍스트가 없는 케이스 — 자료실류)
+      - 그것도 없으면: 가장 가까운 <div> 조상(li(비표) 문맥과 표 행 문맥과 다르게
+        직계자식 문구가 아닌, 형제 <span>/<p> 등에 문서명이 있는 카드형 레이아웃 —
+        예: 부보금융회사 목록 엑셀/한글 다운로드) 텍스트를 li와 동일한 방식으로 뽑는다.
+        단, 앵커가 본문 어디서든 부분일치되는 사고를 막기 위해 결과가 너무 길면
+        (지나치게 상위 div까지 올라가 페이지 대부분을 삼킨 경우) 버리고 ""를 반환한다
+        — 매칭 실패로 남는 게 엉뚱한 청크에 오매칭되는 것보다 낫다.
     """
     li = el.find_parent("li")
     if li is not None:
         ctx = deepcopy(li)
-        for b in ctx.select("button.btnIco, a.btnIco"):
+        for b in ctx.find_all(onclick=lambda v: v and "gfn_downloadFile" in v):
             b.decompose()
         raw = ctx.get_text("\n")
         lines = [collapse(l) for l in raw.split("\n")]
@@ -167,9 +183,20 @@ def _anchor_text(el) -> str:
     tr = el.find_parent("tr")
     if tr is not None:
         ctx = deepcopy(tr)
-        for b in ctx.select("button.btnIco, a.btnIco"):
+        for b in ctx.find_all(onclick=lambda v: v and "gfn_downloadFile" in v):
             b.decompose()
         return _row_line(ctx)
+
+    div = el.find_parent("div")
+    if div is not None:
+        ctx = deepcopy(div)
+        for b in ctx.find_all(onclick=lambda v: v and "gfn_downloadFile" in v):
+            b.decompose()
+        raw = ctx.get_text("\n")
+        lines = [collapse(l) for l in raw.split("\n")]
+        lines = [l for l in lines if l]
+        text = "\n".join(lines)
+        return text if 0 < len(text) <= 200 else ""
 
     return ""
 
@@ -199,25 +226,30 @@ def _direct_attachment(a, doc_kind: str, base_url: str) -> dict | None:
 
 def _dynamic_attachment(btn, doc_kind: str, base_url: str) -> dict | None:
     onclick = btn.get("onclick", "") or ""
-    if "gfn_downloadFile" not in onclick:
+    m = ONCLICK_RE.search(onclick)
+    if m is None:
         return None
+    enc_real, enc_temp = m.group(1), m.group(2)
     file_type = "other"
     for c in btn.get("class", []):
-        m = ICO_CLASS_RE.match(c)
-        if m:
-            file_type = m.group(1).lower()
+        mm = ICO_CLASS_RE.match(c)
+        if mm:
+            file_type = mm.group(1).lower()
             break
     return {
         "name": collapse(btn.get_text(" ")),
         "file_type": file_type,
         "doc_kind": doc_kind,
-        # url = "문서를 찾을 수 있는 위치" — 정적 크롤링으로는 실제 파일 절대 URL을
-        # 만들 수 없으므로(세션 종속 암호화 파라미터 필요), 문서가 있는 안내 페이지
-        # 자체 URL을 대신 채운다. 챗봇은 파일을 직접 반환하지 않고 "이 URL에서
-        # 받으세요"로 안내하면 되므로 이 값으로 충분하다.
+        # url = "문서를 찾을 수 있는 위치" 안내 페이지 URL (실파일 자체는 아님 —
+        # 실다운로드는 enc_real/enc_temp로 fetch_attachments.py가 별도 수행).
         "url": base_url,
         "link_type": "onclick_dynamic",
         "anchor_text": _anchor_text(btn),
+        # 다운로드 재현용 토큰 원본. 세션 종속이 아니라 페이지 렌더마다 고정값이라
+        # (실사 확인) doc_id 안에서 이 쌍이 곧 파일 신원 그 자체 — link_files.py가
+        # anchor_text 같은 표시 텍스트가 아니라 이 값으로 정확히 1:1 매칭한다.
+        "enc_real": enc_real,
+        "enc_temp": enc_temp,
     }
 
 
@@ -232,7 +264,17 @@ def extract_attachments(container, base_url: str) -> list[dict]:
       url이 실제 파일인지 안내 페이지인지 구분용),
       anchor_text(chunk.py가 청크 매칭에 쓰는 필드 — direct는 name과 동일,
       dynamic은 버튼을 감싸는 li/td 문구. 표시용 name과 매칭용 anchor_text를
-      분리한 이유는 [meta-doc] 참고)
+      분리한 이유는 [meta-doc] 참고), onclick_dynamic 항목엔 추가로
+      enc_real/enc_temp(다운로드 토큰 원본 — link_files.py의 파일 신원 키)
+
+    [meta-doc 후속] dynamic dedup 키를 (enc_real, enc_temp) 토큰 쌍으로 쓴다 —
+    name/anchor_text 같은 표시 텍스트 기반 키는 동일 문서가 페이지 내 여러 곳
+    (예: 본인/대리인 탭)에 노출될 때 실제로는 서로 다른 파일인데도 문구가
+    똑같아서 dedup 키가 충돌하는 사례가 실사에서 나왔다(예: SprtFndDebtDlngAplyGudn
+    페이지의 "금융거래정보 발급신청서" — 본인용/대리인용이 텍스트는 동일, 토큰은
+    다른 별개 파일). 토큰은 페이지 렌더마다 고정값이라(세션 종속 아님, 실사 확인)
+    진짜 파일 신원으로 안전하게 쓸 수 있다. 반대로 같은 문서의 hwp/pdf 버튼처럼
+    name/anchor_text가 같아도 토큰이 다르면 별개 항목으로 정확히 유지된다.
     """
     out: list[dict] = []
     seen: set[tuple] = set()
@@ -256,10 +298,11 @@ def extract_attachments(container, base_url: str) -> list[dict]:
                     if item:
                         add(item, ("direct", item["url"]))
 
-                for btn in cell.select("button.btnIco, a.btnIco"):
+                for btn in cell.find_all(onclick=lambda v: v and "gfn_downloadFile" in v):
                     item = _dynamic_attachment(btn, doc_kind, base_url)
                     if item:
-                        add(item, ("dynamic", item["name"], item["anchor_text"]))
+                        add(item, ("dynamic", item["name"], item["anchor_text"],
+                                   item["file_type"], item["enc_real"], item["enc_temp"]))
 
     # 표 밖 느슨한 첨부 링크 (자료실/보도자료 목록형 페이지 등)
     for a in container.find_all("a", href=True):
@@ -269,12 +312,13 @@ def extract_attachments(container, base_url: str) -> list[dict]:
         if item:
             add(item, ("direct", item["url"]))
 
-    for btn in container.select("button.btnIco, a.btnIco"):
+    for btn in container.find_all(onclick=lambda v: v and "gfn_downloadFile" in v):
         if btn.find_parent("table"):
             continue
         item = _dynamic_attachment(btn, "기타", base_url)
         if item:
-            add(item, ("dynamic", item["name"], item["anchor_text"]))
+            add(item, ("dynamic", item["name"], item["anchor_text"],
+                       item["file_type"], item["enc_real"], item["enc_temp"]))
 
     return out
 
