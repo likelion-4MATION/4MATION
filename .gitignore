@@ -6,6 +6,7 @@ desktop.ini
 # ===== IDE / Editor =====
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 
@@ -51,6 +52,7 @@ crawler/data/raw/
 crawler/data/meta/
 crawler/data/parsed/
 crawler/data/index/
+crawler/data/index_backup_*/
 # D0 재현성 검증용 임시 산출 디렉토리 (run_crawl.py --out run1/run2, verify_rerun.py 입력)
 crawler/run1/
 crawler/run2/
