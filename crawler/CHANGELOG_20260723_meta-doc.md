@@ -60,14 +60,14 @@
 - 총 46건 다운로드 시도, 실패 0건(`manifest.json` 기준). 디스크에는 44개 파일이 저장됨 — 차이 2건은 동일 문서가 한 페이지 안에서 중복 노출돼 토큰 캐시로 재사용된 것(신규 다운로드 없이 기존 경로만 재기록).
 - 첨부가 존재하는 페이지는 크롤 대상 38페이지(필수 37 + 분석포함 1) 중 6개뿐이며, 그 6개 페이지 전부에서 정상 다운로드됨:
 
-  | doc_id | 첨부 건수 | 필수 37건 목록 포함 |
-  |---|---|---|
-  | `kdic-fins-ir-aplygudn-MsdrAddrsePossDcmntGudn-selectScrn` | 4 | ✅ |
-  | `kdic-fins-ir-aplygudn-MsdrprPossDcmntGudn-selectScrn` | 22(캐시 재사용 2건 포함, 실파일 20) | ✅ |
-  | `kdic-fins-ir-aplygudn-MtrsVstRcptGudn-selectScrn` | 2 | ✅ |
-  | `kdic-www-sp-dpstrprot-DpsmIbamtAplyPossDcmnt-selectScrn` | 10 | ✅ |
-  | `kdic-www-sp-dpstrprot-selectProtSystProtSumr` | 3 | ✅ |
-  | `kdic-www-sp-sprtfund-SprtFndDebtDlngAplyGudn-selectScrn` | 5 | ❌ (분석포함으로 추가된 38번째 페이지) |
+  | doc_id | 첨부 건수 |
+  |---|---|
+  | `kdic-fins-ir-aplygudn-MsdrAddrsePossDcmntGudn-selectScrn` | 4 |
+  | `kdic-fins-ir-aplygudn-MsdrprPossDcmntGudn-selectScrn` | 22(캐시 재사용 2건 포함, 실파일 20) |
+  | `kdic-fins-ir-aplygudn-MtrsVstRcptGudn-selectScrn` | 2 |
+  | `kdic-www-sp-dpstrprot-DpsmIbamtAplyPossDcmnt-selectScrn` | 10 |
+  | `kdic-www-sp-dpstrprot-selectProtSystProtSumr` | 3 |
+  | `kdic-www-sp-sprtfund-SprtFndDebtDlngAplyGudn-selectScrn` | 5 | 
 
 - 용량: 약 4.1MB.
 
