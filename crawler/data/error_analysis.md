@@ -1,6 +1,6 @@
 # 오류 분석 리포트 — hybrid 기준
 
-- 대상: 전체 400건 중 **미적중 25건** · 미적중률 6.2%
+- 대상: 전체 400건 중 **미적중 24건** · 미적중률 6.0%
 - 미적중 = gt_docs 문서가 hybrid top-3 밖. `rank=0` 은 top-10 내에도 정답 문서 없음.
 - 태그: **✅정답** / **⚠️타업무혼입**(다른 업무 문서가 올라옴) / **❌동일업무오답**(같은 업무의 다른 문서).
 
@@ -10,9 +10,9 @@
 |---|---|---|---|
 | 착오송금 반환 신청 | 72 | 11 | 15.3% |
 | 고객 미수령금 신청 | 67 | 4 | 6.0% |
-| 은닉재산 신고 | 62 | 3 | 4.8% |
 | 예금보험금 안내 | 65 | 3 | 4.6% |
 | 채무조정 안내 | 68 | 3 | 4.4% |
+| 은닉재산 신고 | 62 | 2 | 3.2% |
 | 예금자보호제도 | 66 | 1 | 1.5% |
 
 ## 2. 혼입 문서 랭킹 (미적중 문항 top-3를 잠식한 오답 문서)
@@ -28,12 +28,12 @@
 | `kdic-fins-ir-aplygudn-MsdrprPossDcmntGudn-selectScrn` | 5 | 착오송금 반환 신청 |
 | `kdic-fins-cm-bbs-selectFaqTop10` | 5 | 공통 |
 | `kdic-fins-ir-msdrpr-MsdrprAttnMttr-selectScrn` | 3 | 착오송금 반환 신청 |
-| `kdic-fins-cm-bbs-selectFaqCncmPrptDclr` | 3 | 은닉재산 신고 |
-| `kdic-www-sp-sprtfund-SprtFndCncmDclrFaq-selectScrn` | 3 | 은닉재산 신고 |
-| `kdic-www-sp-dpstrprot-ProtSystHrpeHistInq-selectScrn` | 3 | 고객 미수령금 신청 |
 | `kdic-www-sp-kmrs-kmrsItrd-selectScrn` | 2 | 착오송금 반환 신청 |
 | `kdic-fins-cm-bbs-selectFaqLbltInfoInq` | 2 | 채무조정 안내 |
 | `kdic-www-sp-dpstrprot-DpsmIbamtExpln-selectScrn` | 2 | 예금보험금 안내 |
+| `kdic-www-rb-lbltajmt-LbltAjmtSprtPsnRg-selectScrn` | 2 | 채무조정 안내 |
+| `kdic-fins-cm-bbs-selectFaqCncmPrptDclr` | 2 | 은닉재산 신고 |
+| `kdic-www-sp-sprtfund-SprtFndCncmDclrFaq-selectScrn` | 2 | 은닉재산 신고 |
 
 ## 3. 업무 간 혼입 흐름 (미적중 문항의 top-1이 엉뚱한 업무를 가리킨 경우)
 
@@ -83,11 +83,11 @@
 
 ### [예금보험금 안내 · simple] 인터넷 신청도 미성년자는 안 되나요?
 - 정답 gt_docs: ['kdic-www-sp-dpstrprot-DpsmIbamtExpln-selectScrn']
-- dense rank: 미적중 · hybrid rank: 8
+- dense rank: 미적중 · hybrid rank: 9
 - hybrid top-3:
   1. [⚠️타업무혼입] 고객 미수령금 신청 / 미수령금통합신청  `kdic-fins-cm-bbs-selectFaqNramtAply`
-  2. [⚠️타업무혼입] 착오송금 반환 신청 / 착오송금인  `kdic-fins-ir-aplygudn-MsdrprPossDcmntGudn-selectScrn`
-  3. [⚠️타업무혼입] 채무조정 안내 / 채무정보조회  `kdic-fins-cm-bbs-selectFaqLbltInfoInq`
+  2. [⚠️타업무혼입] 채무조정 안내 / 채무정보조회  `kdic-fins-cm-bbs-selectFaqLbltInfoInq`
+  3. [⚠️타업무혼입] 착오송금 반환 신청 / 착오송금인  `kdic-fins-ir-aplygudn-MsdrprPossDcmntGudn-selectScrn`
 
 ### [예금보험금 안내 · yesom] 예금보험금을 창구에서 직접 받으려면 어느 지점으로 가야 하나요?
 - 정답 gt_docs: ['kdic-www-sp-dpstrprot-DpsmIbamtAplyProc-selectScrn']
@@ -115,19 +115,11 @@
 
 ### [은닉재산 신고 · new] 그 사람이 가족 이름으로 재산을 몰래 넘겨놓은 것 같은데 이것도 신고할 수 있나요?
 - 정답 gt_docs: ['kdic-www-sp-sprtfund-SprtFndCncmDclrGudn-selectScrn']
-- dense rank: 미적중 · hybrid rank: 8
+- dense rank: 미적중 · hybrid rank: 6
 - hybrid top-3:
   1. [❌동일업무오답] 은닉재산 신고 / FAQ  `kdic-www-sp-sprtfund-SprtFndCncmDclrFaq-selectScrn`
   2. [❌동일업무오답] 은닉재산 신고 / 은닉재산신고  `kdic-fins-cm-bbs-selectFaqCncmPrptDclr`
   3. [⚠️타업무혼입] 예금보험금 안내 / 신청시 구비서류  `kdic-www-sp-dpstrprot-DpsmIbamtAplyPossDcmnt-selectScrn`
-
-### [은닉재산 신고 · new] 신고하고 나서 어떻게 처리되고 있는지 나중에 확인해볼 수 있나요?
-- 정답 gt_docs: ['kdic-www-sp-sprtfund-SprtCncmDclrInqGudn-selectScrn']
-- dense rank: 9 · hybrid rank: 4
-- hybrid top-3:
-  1. [❌동일업무오답] 은닉재산 신고 / FAQ  `kdic-www-sp-sprtfund-SprtFndCncmDclrFaq-selectScrn`
-  2. [❌동일업무오답] 은닉재산 신고 / 은닉재산신고  `kdic-fins-cm-bbs-selectFaqCncmPrptDclr`
-  3. [⚠️타업무혼입] 고객 미수령금 신청 / 상속인 금융거래조회  `kdic-www-sp-dpstrprot-ProtSystHrpeHistInq-selectScrn`
 
 ### [은닉재산 신고 · simple] 일반인도 은닉재산 신고할 수 있어요?
 - 정답 gt_docs: ['kdic-www-sp-sprtfund-SprtFndCncmDclrGudn-selectScrn']
@@ -158,8 +150,8 @@
 - dense rank: 미적중 · hybrid rank: 6
 - hybrid top-3:
   1. [❌동일업무오답] 착오송금 반환 신청 / 착오송금반환지원신청  `kdic-fins-cm-bbs-selectFaqMsdrGvbkAply`
-  2. [⚠️타업무혼입] 공통 / TOP 10  `kdic-fins-cm-bbs-selectFaqTop10`
-  3. [❌동일업무오답] 착오송금 반환 신청 / 착오송금인  `kdic-fins-ir-aplygudn-MsdrprPossDcmntGudn-selectScrn`
+  2. [❌동일업무오답] 착오송금 반환 신청 / 착오송금인  `kdic-fins-ir-aplygudn-MsdrprPossDcmntGudn-selectScrn`
+  3. [⚠️타업무혼입] 공통 / TOP 10  `kdic-fins-cm-bbs-selectFaqTop10`
 
 ### [착오송금 반환 신청 · short] 착오송금 어떻게 신청해요?
 - 정답 gt_docs: ['kdic-www-sp-kmrs-kmrsItrdAplyMthd-selectScrn']
