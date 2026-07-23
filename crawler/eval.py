@@ -10,6 +10,9 @@ D1 통과 판정은 대표 6문항 top-3 적중 5+ (representative=True).
   정답 쏠림(문서 1개가 정답의 25%)·업무 편차(착오송금 44 vs 채무조정 10) 때문에
   micro만 보면 소수 그룹 성능이 종합 지표를 왜곡한다 → macro 병기로 편향 진단.
 
+중요: near-duplicate 후보는 ``generate_near_duplicate_candidates.py``가 별도
+검토 파일로만 생성한다. 이 평가기는 후보 점수로 ``gt_docs``를 추가하지 않는다.
+
 사용: python eval.py   → 콘솔 요약 + data/eval_report.md (테스트셋 400건 기준)
 """
 

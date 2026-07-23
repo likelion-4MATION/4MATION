@@ -16,7 +16,7 @@ pip install -r requirements.txt
 python tests/test_guards.py
 
 # 1) 라이브 재수집 → 파싱 → 청킹 → 임베딩 → 인덱스 (원커맨드)
-#    38건 · 요청당 1.5s+지터 폴라이트 · 최초 실행 시 임베딩 모델 ~440MB 다운로드 ≈ 3~5분
+#    38건 · 요청당 1.5s+지터 폴라이트 · 최초 실행 시 임베딩 모델(bge-m3, ~2.2GB) 다운로드 필요 — 회선에 따라 5분 이상
 python pipeline.py --rebuild
 
 # 2) 검색 평가 (hit@1 / hit@3 / MRR, dense vs hybrid) → data/eval_report.md
@@ -41,6 +41,7 @@ grep -c "5천만" data/raw/kdic-www-sp-dpstrprot-ProtSystProtLmts-selectScrn.htm
 | ④⑤ 인덱스 | `python pipeline.py --use-cache --rebuild` | `data/raw` 캐시(무네트워크) → `data/index/` |
 | 평가셋 | `python build_testset.py` | `data/chunks.jsonl` → `data/testset.jsonl` |
 | 채점 | `python eval.py` | testset + index → `data/eval_report.md` |
+| 근접중복 후보 생성 | `python generate_near_duplicate_candidates.py --min-ratio 0.4` | testset + chunks → `data/near_duplicate_candidates.jsonl` (검토 대기; `gt_docs` 미변경) |
 
 - 임베딩·적재 단독 스크립트는 없다 — `pipeline.py`(내부 `rag.Store`)가 담당.
 - `--use-cache`는 `data/raw`가 이미 있을 때만 동작한다(없으면 전건 `cache_miss`). **클론 직후에는 쓰지 말 것** — 위 빠른 시작의 `--rebuild`(라이브)를 쓴다.
@@ -104,9 +105,11 @@ python verify_rerun.py run1 run2
 | 재실행 동일 결과 | `verify_rerun.py` — 텍스트 해시 기준 (raw 바이트는 CSRF/세션값 변동으로 제외) |
 | 파서 v0 (값 유실 없음) | `parser.py` — `.contents` 컨테이너 · 표 행 직렬화 · 스팟체크 5/5 |
 | 청킹 + 스키마 | `chunk.py` — 800자/오버랩 100 · 표 중간분할 금지 · FAQ 1쌍=1청크 |
-| 임베딩·벡터DB | `rag.py` — ko-sroberta(768d) + FAISS IndexFlatIP + BM25(kiwi) + RRF(k=60) |
+| 임베딩·벡터DB | `rag.py` — bge-m3(1024d) + FAISS IndexFlatIP + BM25(kiwi) + RRF(k=5, dw=2.0/sw=1.0) |
 | 재수집 트리거 | `pipeline.py` `recollect()` — content_hash 스킵 |
-| 평가셋 + 지표 | `build_testset.py` · `eval.py` — 52건, hybrid hit@3 .923 |
+| 평가셋 + 지표 | `build_testset.py` · `eval.py` — D1 PoC 52건 hybrid hit@3 .923 (이후 400건 확장판 hit@3 .930 — [SESSION_SUMMARY_2026-07-22.md](./SESSION_SUMMARY_2026-07-22.md)) |
+
+> **2026-07-22 업데이트**: 임베딩 모델을 ko-sroberta-multitask → bge-m3로 교체, RRF 파라미터 재튜닝(400건 테스트셋 그리드서치). 이 표는 D1(2026-07-13) 스냅샷 문서라 상세 변경 이력은 고치지 않고 여기 요약만 반영 — 근거는 [`DECISIONS.md`](./DECISIONS.md), 상세는 [`SESSION_SUMMARY_2026-07-22.md`](./SESSION_SUMMARY_2026-07-22.md) 참고.
 
 ## 주의
 
@@ -114,3 +117,4 @@ python verify_rerun.py run1 run2
 - 대기열 마커 문구는 정상 페이지에도 숨김 모달로 존재 → 본문이 짧을 때만 대기열 판정.
 - 첨부(PDF/HWP)는 이번 스프린트 스킵 — 파서가 `attachments` 링크 목록만 보존.
 - **소스 원문 무수정 원칙**: H6b(상속 페이지 stale 5천만) 등 구값은 raw/청크를 고치지 않는다 — 보정은 D2 답변 레이어에서만.
+- **평가 정답 무단 확장 금지**: 문자열 유사도는 검토 후보 우선순위일 뿐 relevance label이 아니다. `generate_near_duplicate_candidates.py`의 산출물은 전수 사람 검토·기록 전에는 `gt_docs`에 반영하지 않는다.
