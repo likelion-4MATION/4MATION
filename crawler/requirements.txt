@@ -5,6 +5,6 @@ openpyxl>=3.1
 # D1 — 파서→벡터DB→검색
 numpy>=1.26
 faiss-cpu>=1.7
-sentence-transformers>=2.2   # jhgan/ko-sroberta-multitask (최초 실행 시 ~440MB 다운로드)
+sentence-transformers>=2.7   # BAAI/bge-m3 (최초 실행 시 ~2.2GB 다운로드). Qwen3-Embedding 계열도 이 버전 이상 요구.
 kiwipiepy>=0.15              # BM25 한국어 형태소 토크나이저
 rank-bm25>=0.2

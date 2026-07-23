@@ -82,7 +82,7 @@ def main() -> None:
 <div class="wrap">
   <h1>RAG 검색 결과 — 착오송금 반환 신청</h1>
   <p class="q">Q. {html.escape(QUERY)}</p>
-  <p class="meta">ko-sroberta-multitask · {MODE} (RRF) · top-{TOPK} 청크 · 초록 테두리 = 정답 근거 페이지</p>
+  <p class="meta">{rag.MODEL_NAME} · {MODE} (RRF) · top-{TOPK} 청크 · 초록 테두리 = 정답 근거 페이지</p>
   {''.join(cards)}
 </div></html>"""
     pathlib.Path(OUT).write_text(doc, encoding="utf-8")
