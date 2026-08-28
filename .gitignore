@@ -1,0 +1,128 @@
+# ===== OS =====
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===== IDE / Editor =====
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===== 환경변수 / 시크릿 =====
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+
+# ===== ML 산출물 =====
+*.ckpt
+*.pt
+*.pth
+*.safetensors
+*.h5
+*.onnx
+# 라우터 체크포인트 — faq_bf_map.py --router 입력. 산출물 bf_map.jsonl은 커밋돼 있다.
+# 가중치 pytorch_model.bin(2.38GB)만 제외하고, 설정·토크나이저 8개(15.9MB)는 커밋한다.
+# 그래야 id2label 6대 업무 일치(faq_bf_map V1 검증)를 가중치 없이도 코드리뷰에서 확인할 수 있다.
+# 가중치 배포는 HF 프라이빗 repo — docs/router_checkpoint.md · crawler/router_source.py
+router_moai_embedding_model/*
+!router_moai_embedding_model/config.json
+!router_moai_embedding_model/tokenizer.json
+!router_moai_embedding_model/tokenizer_config.json
+!router_moai_embedding_model/special_tokens_map.json
+!router_moai_embedding_model/added_tokens.json
+!router_moai_embedding_model/vocab.json
+!router_moai_embedding_model/merges.txt
+!router_moai_embedding_model/chat_template.jinja
+# 리랭커 실험 입력 패키지 — rerank_colab/prepare_inputs.py 재생성 산출물
+rerank_colab/rerank_inputs.zip
+# 그리드서치 전량 결과(29만 행) — tune_params_v2.py로 50초에 재생성. 요약만 커밋.
+crawler/data/tune_v2_*.json
+wandb/
+mlruns/
+runs/
+checkpoints/
+*.csv.gz
+*.parquet
+
+# ===== crawler/ 데이터 파이프라인 — 재생성 산출물 (README 산출물 표 기준) =====
+# data/chunks.jsonl · data/testset.jsonl · data/eval_report.md · data/crawl_report.json ·
+# crawl_manifest.csv · kdic_필수페이지_URL매핑.csv 는 레포 포함 대상이므로 아래에서 제외되지 않음.
+crawler/data/raw/
+crawler/data/meta/
+crawler/data/parsed/
+crawler/data/index/
+# [doc-agg] 첨부 실파일 스토리지 — fetch_attachments.py 재생성 산출물이므로 ignore.
+#   data/doc_attachments.json(문서 단위 첨부 메타)은 레포 포함 대상이라 제외 안 함.
+crawler/data/files/
+# D0 재현성 검증용 임시 산출 디렉토리 (run_crawl.py --out run1/run2, verify_rerun.py 입력)
+crawler/run1/
+crawler/run2/
+crawler/run_*/
+
+# ===== Node =====
+node_modules/
+.next/
+.nuxt/
+.cache/
+coverage/
+*.log
+npm-debug.log*
+yarn-error.log*
+.pnpm-store/
+
+# ===== 기타 =====
+tmp/
+
+# ===== iCloud 동기화 충돌 사본 =====
+# iCloud Drive가 동기화 도중 만드는 "이름 2.확장자"/"이름 복사본.ext" 형태 복사본. 원본만 커밋 대상.
+**/* 2.*
+**/* 2/
+**/*복사본.*
+**/* 복사본 *
+
+# ===== Vector DB / RAG 로컬 산출물 =====
+chroma_db/
+*.faiss
+*.index
+corpus/
+# local files
+.claude/
+backup/
+
+# ===== 관리자 콘솔 런타임 상태 =====
+# 설정 오버라이드·첨부 오버레이·잡 기록·업로드·백업은 기기별 상태다. 코드만 커밋한다.
+admin/data/*
+!admin/data/.gitkeep
+# HCX/DeepSeek 생성 답변·OpenCode 심사 배치(키·응답 포함) — 실험 시 재생성
+chatbot/data/llm_compare/
+chatbot/demo_results_deepseek.jsonl
+# 마운트 환경에서 git이 남긴 잠금 파일 치우는 자리(삭제 권한이 없어 옮겨만 둔다)
+_to_delete/
+
+# ===== 휴대형 로컬 실행 번들 =====
+# 폴더를 직접 옮길 때는 아래 파일들이 디스크에 있어도 되지만 Git에는 올리지 않는다.
+# 라우팅 모델 가중치는 위 router_moai_embedding_model 규칙으로 이미 제외된다.
+.hf-cache/
+huggingface-cache/
+*.sqlite3-wal
+*.sqlite3-shm
+*.sqlite3-journal
+.coverage
+htmlcov/
