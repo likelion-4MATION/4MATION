@@ -224,20 +224,23 @@ python runner.py --mode files --config '{}'
 리포지토리 루트에서:
 
 ```bash
-python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py -q
+python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py tests/test_qform_boost.py -q
 node --check web/static/app.js
 node --check admin/static/app.js
 python chatbot/verify_qform_e2e.py
 python chatbot/verify_qform_integration.py
+python chatbot/verify_qform_search_attachments.py
 python chatbot/verify_qform_multiturn.py
 ```
 
 2026-08-30 기준:
 
-- Python: 21 passed
+- Python: 28 passed
 - 사용자·관리자 UI JavaScript 문법: 통과
 - Q-Form E2E: 104조합 통과
 - Q-Form 통합: 전 시나리오 통과
+- Q-Form 실검색 첨부 반환: 실제 Searcher → chain → 첨부 실파일 통과(외부 LLM 0콜)
+- Q-Form 검색 조건: `field: value` 확장·원문 생성 분리·기본 ON 통과
 - Q-Form 멀티턴: 24/24 통과
 
 ## 8. OOS 운영 확인
