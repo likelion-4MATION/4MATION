@@ -1,22 +1,7 @@
 """통합 검색 평가 — 청크·스팬·앵커 3종 판정을 한 파일에서 담당한다.
 
-이 파일은 다음 5개 평가 스크립트를 하나로 합친 결과다(2026-08-24 통합).
-archive/superseded/ 에 원본이 그대로 남아 있다.
-
-| 흡수한 원본                        | 대응 서브커맨드 | 상태 |
-|-----------------------------------|----------------|------|
-| `eval_anchor_v3.py`               | `chunk`        | **정본** — 로직 무변경 이식 |
-| `eval_anchor_span_multi.py`       | `span`         | 다중 span AND 판정 |
-| `eval_anchor_gold.py`             | `gold`         | 앵커-host 판정 + Wilson/nDCG/McNemar |
-| `eval.py` (구세대, parent_doc_id)  | —              | 평가셋 소실·폐기. 지표 함수만 §3 에 보존 |
-| `eval_TF.py` · `eval_pair.py`      | —              | 평가셋 소실. archive 로 이동 |
-
-⚠ 이름 주의 — 이 `eval.py` 는 **구세대 `eval.py`(parent_doc_id 판정, 폐기)가 아니다.**
-기존 문서에서 "eval.py = 폐기된 구세대 평가"로 읽히는 서술은 archive/superseded/
-eval_doc_legacy.py 를 가리킨다. 판정 기준은 `docs/records/handoff/eval_유상.md` §5 #3 을 따른다.
-
-세 판정의 의미가 서로 달라 "중복 제거"로 하나만 남기지 않았다. 실제로 중복이던
-것(로더·정규화·표 헬퍼·GT 파서·검색 실행)만 §2 로 합쳐 단일 지점을 만들었다.
+essential 저장소의 현재 입력은 ``gt_testset_retrieval_450.jsonl``과
+``data/chunks.jsonl``이다. 세 판정은 의미가 달라 서브커맨드로 함께 유지한다.
 
   - `chunk` : **앵커텍스트 판정(정본).** KS=1~50, relation ANY/ALL. **admin 콘솔이 쓰는 경로.**
               `gt_chunk_ids` 는 판정에 쓰지 않는다 — 특정 청킹에 대한 좌표라 재청킹하면
@@ -27,14 +12,14 @@ eval_doc_legacy.py 를 가리킨다. 판정 기준은 `docs/records/handoff/eval
   - `gold`  : 앵커를 포함한 **모든** 청크를 host 로 계산(gold id 무관). 등급 nDCG·
               Wilson CI·McNemar 유의성 검정 제공.
 
-사용:
+사용(현재 폴더는 ``crawler/``):
     cd crawler
-    python eval.py chunk --gt ../final_testset/gt_natural430_anchored.jsonl   # 앵커 판정(기본)
+    python eval.py chunk --gt gt_testset_retrieval_450.jsonl
     python eval.py chunk --gt ... --score chunk_id|anchor|both --mode hybrid_bf
-    python eval.py chunk --gt ... --id-fallback     # 구 하이브리드 판정(라벨 잔량 감사용)
+    python eval.py chunk --gt ... --id-fallback
     python eval.py span  --gt ... --mode hybrid_bf [--id-fallback] [--limit N]
-    python eval.py gold  --gt ... --retrieved data/retrieved_top30.jsonl [--compare other.jsonl]
-    python eval.py              # 인자 없으면 chunk (구 eval_anchor_v3.py 기본 동작)
+    python eval.py gold  --gt ... --retrieved data/retrieved.jsonl [--compare other.jsonl]
+    python eval.py              # 인자 없으면 현재 GT로 chunk 평가
 
 임포트 계약(하위호환) — 기존 호출부가 쓰던 이름을 전부 유지한다.
     import eval as ev3
@@ -95,11 +80,10 @@ KMAX_DOC = 10
 # ══════════════════════════════════════════════════════════════════════════
 
 
-def _default_data_dir(marker: str = "gt_schema_v6.jsonl") -> Path:
+def _default_data_dir(marker: str = "chunks.jsonl") -> Path:
     """스크립트 위치에서 위로 올라가며 marker 를 품은 data 폴더를 찾는다.
 
-    구 eval_anchor_v3 는 marker='gt_schema_v6.jsonl', 구 eval_anchor_span_multi 는
-    'chunks.jsonl' 을 찾았다 — 함수는 같고 marker 만 달랐다.
+    현재 정본 데이터 폴더는 ``crawler/data``이며 ``chunks.jsonl``을 표지로 삼는다.
     """
     for parent in Path(__file__).resolve().parents:
         data_dir = parent / "data"
@@ -1622,13 +1606,15 @@ def _cmd_gold(args: argparse.Namespace) -> None:
 
 def _build_parser() -> argparse.ArgumentParser:
     data_dir = _default_data_dir()
+    crawler_dir = Path(__file__).resolve().parent
+    default_gt = crawler_dir / "gt_testset_retrieval_450.jsonl"
     ap = argparse.ArgumentParser(
         prog="eval.py",
         description="KDIC 통합 검색 평가 — chunk(정본) / span(다중스팬) / gold(앵커-host)")
     sub = ap.add_subparsers(dest="cmd")
 
-    p = sub.add_parser("chunk", help="청크·앵커 판정(정본, 구 eval_anchor_v3.py)")
-    p.add_argument("--gt", default=data_dir / "gt_schema_v6.jsonl", type=Path)
+    p = sub.add_parser("chunk", help="청크·앵커 판정(정본)")
+    p.add_argument("--gt", default=default_gt, type=Path)
     p.add_argument("--chunks", default=data_dir / "chunks.jsonl", type=Path)
     p.add_argument("--retrieved", type=Path,
                    help="id, retrieved_chunk_ids JSONL. 생략하면 현재 rag.Searcher로 검색한다.")
@@ -1645,8 +1631,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         "값이 변하므로 평가 기준으로 쓰지 않는다. 라벨 잔량 감사용으로만 켠다.")
     p.set_defaults(func=_cmd_chunk)
 
-    p = sub.add_parser("span", help="다중 span 판정(구 eval_anchor_span_multi.py)")
-    p.add_argument("--gt", default=data_dir / "gt_natural450_multi.jsonl", type=Path)
+    p = sub.add_parser("span", help="다중 span 판정")
+    p.add_argument("--gt", default=default_gt, type=Path)
     p.add_argument("--chunks", default=data_dir / "chunks.jsonl", type=Path)
     p.add_argument("--retrieved", type=Path,
                    help="id, retrieved_chunk_ids JSONL. 생략하면 현재 rag.Searcher로 검색한다.")
@@ -1659,8 +1645,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         "등장 여부로 대체 판정한다. 기본 꺼짐(기존 리포트와 동일).")
     p.set_defaults(func=_cmd_span)
 
-    p = sub.add_parser("gold", help="앵커-host 판정 + Wilson CI·nDCG·McNemar(구 eval_anchor_gold.py)")
-    p.add_argument("--gt", default=data_dir / "gt_natural450_v10_anchor.jsonl", type=Path)
+    p = sub.add_parser("gold", help="앵커-host 판정 + Wilson CI·nDCG·McNemar")
+    p.add_argument("--gt", default=default_gt, type=Path)
     p.add_argument("--chunks", default=data_dir / "chunks.jsonl", type=Path)
     p.add_argument("--retrieved", default=data_dir / "retrieved_top30.jsonl", type=Path)
     p.add_argument("--label", default="anchor-gold")
