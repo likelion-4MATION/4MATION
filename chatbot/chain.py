@@ -44,18 +44,25 @@ import answer_checks
 import attachments  # 근거 문서 첨부 조회(청크 태깅 우선 + 문서 폴백) — 순수 로컬, 계약 부가 필드
 
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "hcx").strip().lower()
-if LLM_PROVIDER not in {"hcx", "deepseek"}:
-    raise ValueError("LLM_PROVIDER는 'hcx' 또는 'deepseek'여야 합니다.")
+SUPPORTED_LLM_PROVIDERS = {"hcx", "deepseek", "upstage"}
+if LLM_PROVIDER not in SUPPORTED_LLM_PROVIDERS:
+    raise ValueError("LLM_PROVIDER는 'hcx', 'deepseek', 'upstage' 중 하나여야 합니다.")
 
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "").strip()
 DEEPSEEK_API_URL = os.environ.get(
     "DEEPSEEK_API_URL", "https://api.deepseek.com/chat/completions"
 ).strip()
 DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL", "deepseek-v4-flash").strip()
+UPSTAGE_API_KEY = os.environ.get("UPSTAGE_API_KEY", "").strip()
+UPSTAGE_API_URL = os.environ.get(
+    "UPSTAGE_API_URL", "https://api.upstage.ai/v1/chat/completions"
+).strip()
+UPSTAGE_MODEL = os.environ.get("UPSTAGE_MODEL", "solar-pro3").strip()
 HCX_API_KEY = os.environ.get("CLOVA_API_KEY", "").strip()
 HCX_API_URL = os.environ.get("CLOVA_API_URL", "").strip()
 HCX_MODEL = os.environ.get("CLOVA_MODEL", "HCX-003").strip()
-MODEL_NAME = DEEPSEEK_MODEL if LLM_PROVIDER == "deepseek" else HCX_MODEL
+MODEL_NAME = {"hcx": HCX_MODEL, "deepseek": DEEPSEEK_MODEL,
+              "upstage": UPSTAGE_MODEL}[LLM_PROVIDER]
 
 GEN_PARAMS = {
     "temperature": 0.2, "top_p": 0.8, "max_tokens": 512,
@@ -66,6 +73,21 @@ CLS_PARAMS = {
     "thinking": {"type": "disabled"}, "response_format": {"type": "json_object"},
 }  # 분류 — DeepSeek JSON Output 사용
 CALL_BUDGET = 70  # 07-22 route 세션 예산(재시도 포함) — chatbot/CLAUDE.md v3 금지 5항
+CONTEXT_K = 5  # 답변에 넣는 검색 청크 수 — 관리자 설정에서 다음 질의부터 변경 가능
+
+# 답변 검증 게이트 — 관리자 설정이 ``admin/settings.py``를 통해 런타임에 주입한다.
+# 규칙 판정 자체는 LLM 0콜이며, regenerate 모드만 실패 시 답변 생성 콜을 추가한다.
+ANSWER_CHECKS_ENABLED = True
+ANSWER_GATE_MODE = "warn"              # warn | regenerate | block
+ANSWER_GATE_MAX_RETRIES = 1
+CHECK_URLS_ENABLED = True
+CHECK_CITATIONS_ENABLED = True
+CHECK_NUMBERS_ENABLED = True
+STRICT_URL = True
+ANSWER_GATE_BLOCK_TEXT = (
+    "죄송합니다. 생성된 답변이 근거 검증을 통과하지 못해 표시하지 않았습니다. "
+    "질문을 조금 더 구체적으로 바꾸거나 공식 안내 문서를 확인해 주세요."
+)
 _calls = 0
 
 SYS_PROMPT_V2 = (
@@ -116,9 +138,22 @@ def _provider_settings(provider: str) -> tuple[str, str, str]:
     """provider -> (api_key, api_url, model). 비밀값은 호출부 밖으로 기록하지 않는다."""
     if provider == "deepseek":
         return DEEPSEEK_API_KEY, DEEPSEEK_API_URL, DEEPSEEK_MODEL
+    if provider == "upstage":
+        return UPSTAGE_API_KEY, UPSTAGE_API_URL, UPSTAGE_MODEL
     if provider == "hcx":
         return HCX_API_KEY, HCX_API_URL, HCX_MODEL
     raise ValueError(f"지원하지 않는 LLM provider: {provider!r}")
+
+
+def set_llm_provider(provider: str) -> str:
+    """관리자 런타임 설정으로 기본 LLM과 표시 모델명을 함께 전환한다."""
+    global LLM_PROVIDER, MODEL_NAME
+    selected = str(provider).strip().lower()
+    if selected not in SUPPORTED_LLM_PROVIDERS:
+        raise ValueError(f"지원하지 않는 LLM provider: {selected!r}")
+    LLM_PROVIDER = selected
+    MODEL_NAME = _provider_settings(selected)[2]
+    return MODEL_NAME
 
 
 def _request_parts(provider: str, messages: list[dict], req_id: str,
@@ -126,8 +161,15 @@ def _request_parts(provider: str, messages: list[dict], req_id: str,
     """공통 파라미터를 각 공급자의 요청 스키마로 변환한다."""
     api_key, _api_url, model = _provider_settings(provider)
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    if provider == "deepseek":
-        return headers, {"model": model, "messages": messages, "stream": False, **params}
+    if provider in {"deepseek", "upstage"}:
+        compatible = dict(params)
+        if provider == "upstage":
+            # 공식 Chat Completions 예시 범위만 보낸다. DeepSeek 전용 thinking과
+            # 분류용 response_format은 프롬프트 기반 JSON 파싱으로 대체한다.
+            compatible.pop("thinking", None)
+            compatible.pop("response_format", None)
+        return headers, {"model": model, "messages": messages,
+                         "stream": False, **compatible}
 
     # CLOVA Studio는 모델명이 URL에 포함되고 파라미터가 camelCase다.
     headers["X-NCP-CLOVASTUDIO-REQUEST-ID"] = f"{req_id}-t{attempt}"
@@ -141,7 +183,7 @@ def _request_parts(provider: str, messages: list[dict], req_id: str,
 
 
 def _response_content(provider: str, data: dict) -> str:
-    if provider == "deepseek":
+    if provider in {"deepseek", "upstage"}:
         return data["choices"][0]["message"]["content"]
     return data["result"]["message"]["content"]
 
@@ -188,6 +230,12 @@ def _hcx(messages: list[dict], req_id: str,
          params: dict = GEN_PARAMS) -> tuple[str | None, dict]:
     """실험·호환용 명시적 HCX 호출."""
     return _llm(messages, req_id, params, provider="hcx")
+
+
+def _upstage(messages: list[dict], req_id: str,
+             params: dict = GEN_PARAMS) -> tuple[str | None, dict]:
+    """실험·호환용 명시적 Upstage 호출."""
+    return _llm(messages, req_id, params, provider="upstage")
 
 
 def _parse_cls(text: str | None) -> dict | None:
@@ -238,6 +286,108 @@ def _route(label: str) -> str:
     return "reject" if label == "소관밖" else "rag"
 
 
+def _run_answer_checks(text: str | None, hits: list[dict]) -> dict:
+    """현재 런타임 설정으로 규칙 검증. 이 함수 자체는 답변을 바꾸지 않는다."""
+    if text is None:
+        return {"ok": False, "flags": ["생성 실패 — 검증 생략"], "results": {}}
+    if not ANSWER_CHECKS_ENABLED:
+        return {"ok": True, "flags": [], "results": {}, "skipped": "관리자 설정으로 비활성화"}
+    return answer_checks.run_all(
+        text,
+        hits,
+        allow_context_urls=not STRICT_URL,
+        check_urls_enabled=CHECK_URLS_ENABLED,
+        check_citations_enabled=CHECK_CITATIONS_ENABLED,
+        check_numbers_enabled=CHECK_NUMBERS_ENABLED,
+    )
+
+
+def _set_gate(checks: dict, *, action: str, attempts: int, mode: str,
+              retry_error: str | None = None) -> dict:
+    checks = dict(checks)
+    checks["gate"] = {
+        "enabled": bool(ANSWER_CHECKS_ENABLED),
+        "mode": mode,
+        "action": action,
+        "generation_attempts": attempts,
+        "retries": max(0, attempts - 1),
+        "retry_error": retry_error,
+    }
+    return checks
+
+
+def _generate_with_gate(messages: list[dict], hits: list[dict], req_id: str):
+    """답변 생성 → 규칙 검증 → 관리자 정책 적용.
+
+    ``regenerate``는 실패 플래그를 모델에 돌려주고 전체 답변을 다시 쓰게 한다.
+    재시도까지 실패하면 마지막 생성 답변을 경고 상태로 반환한다. 차단은 명시적으로
+    ``block``을 선택했을 때만 수행해 규칙 기반 오탐이 곧바로 사용자 답변을 없애지 않게 한다.
+    """
+    text, meta = _llm(messages, req_id=req_id)
+    attempts = 1
+    total_latency = meta.get("latency_ms") or 0
+    checks = _run_answer_checks(text, hits)
+    mode = ANSWER_GATE_MODE if ANSWER_GATE_MODE in {"warn", "regenerate", "block"} else "warn"
+
+    if text is None:
+        checks = _set_gate(checks, action="generation_failed", attempts=attempts, mode=mode)
+    elif not ANSWER_CHECKS_ENABLED:
+        checks = _set_gate(checks, action="disabled", attempts=attempts, mode=mode)
+    elif checks["ok"]:
+        checks = _set_gate(checks, action="passed", attempts=attempts, mode=mode)
+    elif mode == "block":
+        text = ANSWER_GATE_BLOCK_TEXT
+        checks = _set_gate(checks, action="blocked", attempts=attempts, mode=mode)
+    elif mode == "regenerate":
+        retry_error = None
+        for retry in range(1, max(0, int(ANSWER_GATE_MAX_RETRIES)) + 1):
+            flags = "\n".join(f"- {flag}" for flag in checks.get("flags") or [])
+            correction = {
+                "role": "user",
+                "content": (
+                    "[자동 검증 결과]\n"
+                    f"{flags}\n\n"
+                    "위 위반을 모두 고쳐 답변 전체를 다시 작성하라. 참고문서 밖 정보는 넣지 말고, "
+                    "근거 문장마다 올바른 [출처N]을 붙여라. 검증 결과나 수정 과정을 설명하지 마라."
+                ),
+            }
+            retry_messages = [*messages, {"role": "assistant", "content": text}, correction]
+            revised, retry_meta = _llm(retry_messages, req_id=f"{req_id}-gate-{retry}")
+            attempts += 1
+            total_latency += retry_meta.get("latency_ms") or 0
+            meta = retry_meta
+            if revised is None:
+                retry_error = retry_meta.get("error") or "generation_failed"
+                break
+            text = revised
+            checks = _run_answer_checks(text, hits)
+            if checks["ok"]:
+                checks = _set_gate(
+                    checks, action="regenerated", attempts=attempts, mode=mode
+                )
+                break
+        else:
+            retry_error = None
+        if "gate" not in checks:
+            checks = _set_gate(
+                checks,
+                action="regenerate_exhausted",
+                attempts=attempts,
+                mode=mode,
+                retry_error=retry_error,
+            )
+    else:
+        checks = _set_gate(checks, action="warned", attempts=attempts, mode=mode)
+
+    meta = dict(meta)
+    meta["latency_ms"] = total_latency
+    meta["generation_attempts"] = attempts
+    meta["validation_retries"] = max(0, attempts - 1)
+    meta["answer_gate_mode"] = mode
+    meta["answer_gate_action"] = checks["gate"]["action"]
+    return text, meta, checks
+
+
 def _reject_result(label: str, reason: str, cls_meta: dict, k: int,
                    query: str, retrieval_query: str) -> dict:
     """reject 경로 반환 조립 — 검색·생성·검증 생략. 계약 4필드 + checks/_meta 완비(T2 검증 대상)."""
@@ -246,7 +396,11 @@ def _reject_result(label: str, reason: str, cls_meta: dict, k: int,
         "sources": [],
         "confidence": 0.0,
         "route": "reject",
-        "checks": {"ok": True, "flags": [], "skipped": "고정 거절 문구"},  # 모델 생성물 아님 — 검증 비대상
+        "checks": {"ok": True, "flags": [], "skipped": "고정 거절 문구",
+                   "gate": {"enabled": bool(ANSWER_CHECKS_ENABLED),
+                            "mode": ANSWER_GATE_MODE, "action": "skipped_reject",
+                            "generation_attempts": 0, "retries": 0,
+                            "retry_error": None}},  # 모델 생성물 아님 — 검증 비대상
         "attachments": [],  # 소관 밖 — 반환 첨부 없음(계약 부가 필드)
         "_meta": {"model": MODEL_NAME, "cls_label": label, "cls_reason": reason, **cls_meta,
                   "latency_ms": cls_meta.get("cls_latency_ms"), "k": k,
@@ -255,13 +409,22 @@ def _reject_result(label: str, reason: str, cls_meta: dict, k: int,
     }
 
 
-def answer(query: str, k: int = 3, qform: dict | None = None, *,
+def _resolve_k(k: int | None) -> int:
+    """호출 시점의 런타임 기본값을 사용한다(함수 정의 시점에 5를 고정하지 않음)."""
+    resolved = CONTEXT_K if k is None else int(k)
+    if resolved < 1:
+        raise ValueError("k는 1 이상이어야 합니다.")
+    return resolved
+
+
+def answer(query: str, k: int | None = None, qform: dict | None = None, *,
            retrieval_query: str | None = None) -> dict:
     """계약 4필드 + 부가(checks/_meta). 분류 선행 — 소관밖은 검색·생성 없이 즉시 거절.
 
     qform(큐폼 슬롯 dict, 선택): 주어지면 첨부를 조합 조인으로 후단 필터(B안, §3-1).
     retrieval_query(선택): 검색과 검색 유사도에만 사용한다. 분류와 생성 프롬프트의
     질문은 항상 ``query`` 원문이며, 생략하면 기존처럼 원문으로 검색한다."""
+    k = _resolve_k(k)
     search_query = retrieval_query if retrieval_query is not None else query
     label, reason, cls_meta = classify(query)
     route = _route(label)
@@ -272,7 +435,7 @@ def answer(query: str, k: int = 3, qform: dict | None = None, *,
     context = "\n\n".join(f"[출처{i}] {h['page_title']}\n{h['text']}" for i, h in enumerate(hits, 1))
     messages = [{"role": "system", "content": SYS_PROMPT_V2},
                 {"role": "user", "content": f"[참고문서]\n{context}\n\n[질문]\n{query}"}]
-    text, meta = _llm(messages, req_id="chain")
+    text, meta, checks = _generate_with_gate(messages, hits, req_id="chain")
 
     sources, seen = [], set()
     for h in hits:
@@ -280,8 +443,6 @@ def answer(query: str, k: int = 3, qform: dict | None = None, *,
             seen.add(h["parent_doc_id"])
             sources.append({"title": h["page_title"], "url": h["source_url"], "doc_id": h["parent_doc_id"]})
 
-    checks = (answer_checks.run_all(text, hits, allow_context_urls=False)  # 확정(사람 결정): sources 밖 URL은 본문 유래여도 플래그
-              if text is not None else {"ok": False, "flags": ["생성 실패 — 검증 생략"], "results": {}})
     # 근거 문서 첨부 조회 — 청크 태깅 우선, 없으면 문서 단위 폴백. 검색 hits만 사용(추가 콜 0).
     # qform 주어지면 조합 조인 후단 필터(B안). None이면 기존 동작 그대로.
     attach = attachments.collect(hits, qform=qform)
@@ -300,7 +461,7 @@ def answer(query: str, k: int = 3, qform: dict | None = None, *,
     }
 
 
-def answer_in_scope(query: str, k: int = 3, qform: dict | None = None,
+def answer_in_scope(query: str, k: int | None = None, qform: dict | None = None,
                     bf: str | None = None, *, retrieval_query: str | None = None) -> dict:
     """상단 6-BF 라우터가 IN으로 확정한 절만 검색·생성한다.
 
@@ -308,12 +469,13 @@ def answer_in_scope(query: str, k: int = 3, qform: dict | None = None,
     전달한다. ``retrieval_query`` 는 검색에만 쓰고 생성 질문은 ``query`` 원문을 유지한다.
     이 함수 자체에는 BF/OOS 임계값이 없다.
     """
+    k = _resolve_k(k)
     search_query = retrieval_query if retrieval_query is not None else query
     hits = get_searcher().search(search_query, k=k, mode="hybrid_bf", bf_override=bf)
     context = "\n\n".join(f"[출처{i}] {h['page_title']}\n{h['text']}" for i, h in enumerate(hits, 1))
     messages = [{"role": "system", "content": SYS_PROMPT_V2},
                 {"role": "user", "content": f"[참고문서]\n{context}\n\n[질문]\n{query}"}]
-    text, meta = _llm(messages, req_id="chain-in")
+    text, meta, checks = _generate_with_gate(messages, hits, req_id="chain-in")
 
     sources, seen = [], set()
     for h in hits:
@@ -321,8 +483,6 @@ def answer_in_scope(query: str, k: int = 3, qform: dict | None = None,
             seen.add(h["parent_doc_id"])
             sources.append({"title": h["page_title"], "url": h["source_url"],
                             "doc_id": h["parent_doc_id"]})
-    checks = (answer_checks.run_all(text, hits, allow_context_urls=False)
-              if text is not None else {"ok": False, "flags": ["생성 실패 — 검증 생략"], "results": {}})
     attach = attachments.collect(hits, qform=qform)
     return {
         "text": text, "sources": sources, "confidence": _confidence(search_query), "route": "rag",

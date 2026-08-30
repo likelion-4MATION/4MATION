@@ -139,13 +139,22 @@ def bf_debug_of(query: str) -> dict:
     return bf_debug(query)
 
 
-def _default_search(query: str, k: int = 3, bf_override: str | None = None):
+def _runtime_k(meta: dict | None = None) -> int:
+    """결과 메타가 없으면 체인에 현재 주입된 문맥 수를 사용한다."""
+    if meta and meta.get("k") is not None:
+        return int(meta["k"])
+    import chain
+    return int(chain.CONTEXT_K)
+
+
+def _default_search(query: str, k: int | None = None, bf_override: str | None = None):
     """검색 hits 조달 — `answer()` 가 hits 를 돌려주지 않아 **결정론 재호출**로 얻는다.
 
     같은 쿼리·같은 k·같은 mode 라 `answer()` 내부 결과와 동일하다. LLM 콜 0
     (`rag.py` 무수정 원칙에서 허용하는 순수 함수 재호출 — CLAUDE.md §2-1).
     """
     import chain
+    k = chain.CONTEXT_K if k is None else k
     return chain.get_searcher().search(
         query, k=k, mode="hybrid_bf", bf_override=bf_override
     )
@@ -272,16 +281,16 @@ def collect(query: str, bf_debug: dict, slots: dict, surv: list | None,
     else:
         if hits is None:
             if search_fn is not None:
-                hits = search_fn(search_q, meta.get("k") or 3)
+                hits = search_fn(search_q, _runtime_k(meta))
             else:
                 hits = _default_search(
-                    search_q, meta.get("k") or 3, meta.get("business_function")
+                    search_q, _runtime_k(meta), meta.get("business_function")
                 )
         # 서비스 경로는 원문에서 확정한 업무를 bf_override로 검색에 전달한다.
         # 메타가 없는 구형/단독 answer 결과에서만 검색문으로 진단값을 재계산한다.
         s_bf = meta.get("business_function") or bf_debug_of(search_q)["bf"]
         L["search"] = {
-            "status": "수집", "calls": 0, "k": meta.get("k") or 3,
+            "status": "수집", "calls": 0, "k": _runtime_k(meta),
             "boost_applied": bool(boost_on), "search_q": search_q,
             "search_bf": s_bf, "bf_drift": s_bf != (bf_debug or {}).get("bf"),
             "docs": [{"title": h.get("page_title"), "doc_id": h.get("parent_doc_id"),
@@ -540,7 +549,7 @@ if __name__ == "__main__":
 
     search_calls = [0]
 
-    def stub_search(q, k=3):
+    def stub_search(q, k=5):
         # 실앱에서는 트레이스의 재호출과 answer() 내부 검색이 **같은 hits** 를 낸다
         # (같은 쿼리·k·mode·결정론). 스텁도 stub_answer 와 같은 집합을 써야 필터 전/후가
         # 같은 기준으로 비교된다 — 어긋나면 "필터 후가 더 많다" 같은 거짓 대비가 나온다.
@@ -556,7 +565,7 @@ if __name__ == "__main__":
                 "attachments": _att.collect(FIXED_HITS, qform=qform),
                 "_meta": {"cls_label": "정상", "cls_reason": "소관 업무", "cls_calls": 1,
                           "cls_parse_fail": 0, "cls_latency_ms": 300, "model_status": 200,
-                          "latency_ms": 1200, "error": None, "k": 3, "qform": qform}}
+                          "latency_ms": 1200, "error": None, "k": 5, "qform": qform}}
 
     def trace_of(state, ev, *, boost=False, llm_calls=2):
         """app 층이 할 조립을 그대로 재현 — 전이 이벤트 + 상태에서 트레이스를 만든다."""
@@ -645,7 +654,7 @@ if __name__ == "__main__":
                      "attachments": [],
                      "_meta": {"cls_label": "소관밖", "cls_reason": "타기관 소관",
                                "cls_calls": 1, "cls_parse_fail": 0, "cls_latency_ms": 280,
-                               "latency_ms": 280, "k": 3}}
+                               "latency_ms": 280, "k": 5}}
     QR = "미국 은행에 넣은 예금도 보호되나요?"
     tr_r = collect(QR, bf_debug(QR), extract(QR, business_function=rag.classify_query_bf(QR)),
                    None, None, reject_result, False, search_fn=stub_search, llm_calls=1)

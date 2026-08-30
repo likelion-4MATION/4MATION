@@ -30,8 +30,9 @@ _EMPTY = {"override": {}, "pending": {}, "history": [], "measured": {}, "dirty":
 
 # 실측 이력에 함께 남기는 설정 스냅샷 — 콜 수·응답시간·비용은 실측이 아니라 설정에서
 # 계산되는 값이라, 그때 무슨 설정이었는지를 같이 적어 둬야 나중에 다시 계산할 수 있다.
-OPS_KEYS = ("earlyBlock", "askMode", "QFORM_SCOPE", "MAX_ASK_TURNS", "maxTokens",
-            "k", "CHUNK_SIZE", "OVERLAP", "TABLE_KEEP")
+OPS_KEYS = ("llmProvider", "askMode", "QFORM_SCOPE", "MAX_ASK_TURNS", "maxTokens", "k",
+            "answerChecksEnabled", "answerGateMode", "answerGateMaxRetries",
+            "CHUNK_SIZE", "OVERLAP", "TABLE_KEEP")
 
 
 def _now() -> str:
@@ -245,7 +246,18 @@ def apply_runtime() -> list[str]:
         chain.GEN_PARAMS["max_tokens"] = int(cfg["maxTokens"])
         chain.GEN_PARAMS["temperature"] = float(cfg["temperature"])
         chain.CALL_BUDGET = int(cfg["CALL_BUDGET"])
-        touched += ["chain.GEN_PARAMS", "chain.CALL_BUDGET"]
+        chain.CONTEXT_K = int(cfg["k"])
+        chain.set_llm_provider(cfg["llmProvider"])
+        chain.ANSWER_CHECKS_ENABLED = bool(cfg["answerChecksEnabled"])
+        chain.ANSWER_GATE_MODE = str(cfg["answerGateMode"])
+        chain.ANSWER_GATE_MAX_RETRIES = int(cfg["answerGateMaxRetries"])
+        chain.CHECK_URLS_ENABLED = bool(cfg["checkUrls"])
+        chain.CHECK_CITATIONS_ENABLED = bool(cfg["checkCitations"])
+        chain.CHECK_NUMBERS_ENABLED = bool(cfg["checkNumbers"])
+        chain.STRICT_URL = bool(cfg["strictUrl"])
+        touched += ["chain.GEN_PARAMS", "chain.CALL_BUDGET", "chain.CONTEXT_K",
+                    "chain.LLM_PROVIDER",
+                    "chain.ANSWER_GATE"]
     except Exception as e:
         touched.append(f"chain: skip({type(e).__name__})")
 

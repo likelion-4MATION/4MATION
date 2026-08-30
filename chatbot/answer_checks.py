@@ -1,7 +1,8 @@
 """answer_checks.py — 생성 품질 자동 검증기 골격 (rule-based 3종, HCX 0콜).
 
 멘토링 반영: faithfulness 검증은 answer() 뒤 validation 층위(Q5) · 추가 기능 1순위(Q11).
-전부 규칙 기반 — LLM-judge는 설계 메모만(파일 말미 주석). 판정은 "플래그"이며 차단이 아니다.
+전부 규칙 기반 — LLM-judge는 설계 메모만(파일 말미 주석). 이 모듈은 판정만 반환하고,
+경고·재생성·차단 정책은 ``chain.py``의 답변 게이트가 결정한다.
 
 3종 체크 (밤1 task_assignment T4):
   1) check_urls      — 답변 내 URL ⊆ sources의 source_url (날조 검출; 컨텍스트 본문 URL 허용 옵션)
@@ -134,17 +135,23 @@ def check_numbers(answer: str, context_text: str) -> dict:
 
 
 def run_all(answer: str, hits: list[dict], sources: list[dict] | None = None,
-            allow_context_urls: bool = False) -> dict:
-    """3종 일괄 실행 → 플래그 목록. 차단하지 않는다(호출부가 표시·로깅에만 사용)."""
+            allow_context_urls: bool = False, *, check_urls_enabled: bool = True,
+            check_citations_enabled: bool = True,
+            check_numbers_enabled: bool = True) -> dict:
+    """활성화된 규칙을 실행해 플래그 목록을 반환한다. 정책 결정은 호출부 책임이다."""
     if sources is None:
         sources = [{"title": h.get("page_title"), "url": h.get("source_url"),
                     "source_url": h.get("source_url")} for h in hits]
     context = "\n\n".join(h["text"] for h in hits)
-    results = [
-        check_urls(answer, sources, context_text=context if allow_context_urls else None),
-        check_citations(answer, hits),
-        check_numbers(answer, context),
-    ]
+    results = []
+    if check_urls_enabled:
+        results.append(check_urls(
+            answer, sources, context_text=context if allow_context_urls else None
+        ))
+    if check_citations_enabled:
+        results.append(check_citations(answer, hits))
+    if check_numbers_enabled:
+        results.append(check_numbers(answer, context))
     flags = [f"{r['name']}: {msg}" for r in results for msg in r["violations"]]
     return {"ok": not flags, "flags": flags, "results": {r["name"]: r for r in results}}
 

@@ -31,15 +31,36 @@ PARAMS = [
     _p("preset", "검색 방식", "enum", "accuracy", "normal", "runtime",
        "crawler/rag.py", "검증된 조합 3종 중 선택. 개별 숫자는 ⑥ 고급 탭에서만 바꿉니다.",
        values=["accuracy", "balanced", "diverse"], tab=1),
-    _p("k", "답변에 참고할 문서 수", "int", 3, "normal", "runtime",
-       "chatbot/chain.py:answer(k=)", "많을수록 근거가 늘지만 응답이 느려지고 비용이 올라갑니다.",
+    _p("k", "답변에 참고할 검색 결과 수", "int", 5, "normal", "runtime",
+       "chatbot/chain.py:CONTEXT_K", "검색 청크 수입니다. 많을수록 근거가 늘지만 응답이 느려지고 비용이 올라갑니다.",
        min=1, max=5, tab=1),
+    _p("llmProvider", "챗봇 모델", "enum", "hcx", "normal", "runtime",
+       "chatbot/chain.py:set_llm_provider()",
+       "HCX, DeepSeek 또는 Upstage Solar를 선택합니다. 모델명·API 주소·키는 서버 환경변수 값을 사용합니다.",
+       values=["hcx", "deepseek", "upstage"], tab=1),
     _p("maxTokens", "답변 길이 상한", "int", 512, "normal", "runtime",
        "chatbot/chain.py:GEN_PARAMS", "짧으면 빠르고 저렴하지만 답변이 잘릴 수 있습니다.",
        min=256, max=1024, step=128, tab=1),
     _p("temperature", "답변 일관성", "float", 0.2, "normal", "runtime",
        "chatbot/chain.py:GEN_PARAMS", "낮을수록 같은 질문에 항상 같은 답을 합니다.",
        min=0.0, max=1.0, step=0.1, tab=1),
+    _p("answerChecksEnabled", "답변 자동 검증", "bool", True, "normal", "runtime",
+       "chatbot/chain.py:ANSWER_CHECKS_ENABLED",
+       "URL·출처·수치 규칙으로 생성 답변을 검사합니다. 규칙 검사는 모델 호출을 추가하지 않습니다.", tab=1),
+    _p("answerGateMode", "검증 실패 처리", "enum", "warn", "normal", "runtime",
+       "chatbot/chain.py:ANSWER_GATE_MODE",
+       "경고=답변 유지 / 재생성=자동 수정 후 재검사 / 차단=실패 답변을 표시하지 않음.",
+       values=["warn", "regenerate", "block"], tab=1),
+    _p("answerGateMaxRetries", "자동 재생성 횟수", "int", 1, "normal", "runtime",
+       "chatbot/chain.py:ANSWER_GATE_MAX_RETRIES",
+       "재생성 모드에서만 사용합니다. 재생성 1회마다 답변 모델 호출이 추가됩니다.",
+       min=0, max=2, tab=1),
+    _p("checkUrls", "URL 검사", "bool", True, "normal", "runtime",
+       "chatbot/answer_checks.py:check_urls", "답변의 링크가 근거 문서에서 나온 것인지 검사합니다.", tab=1),
+    _p("checkCitations", "출처 번호 검사", "bool", True, "normal", "runtime",
+       "chatbot/answer_checks.py:check_citations", "[출처N] 누락·범위와 인용 수치를 검사합니다.", tab=1),
+    _p("checkNumbers", "전화번호·금액 검사", "bool", True, "normal", "runtime",
+       "chatbot/answer_checks.py:check_numbers", "근거에 없는 전화번호·금액·비율을 검사합니다.", tab=1),
     _p("strictUrl", "링크 검사 엄격도", "bool", True, "normal", "runtime",
        "chatbot/answer_checks.py:allow_context_urls",
        "엄격: 출처 목록에 없는 링크는 본문에 있었더라도 경고 표시(권장).", tab=1),
@@ -143,7 +164,7 @@ PRESETS = {
 
 
 # ── 기준 설정 (초기화 버튼) ─────────────────────────────────────────────
-# "지금까지 나온 가장 좋은 조합"으로 되돌리는 지점. 기본값과 거의 같고 `k` 만 다르다 —
+# "지금까지 나온 가장 좋은 조합"으로 되돌리는 지점. 기본값도 `k=5`다 —
 # 같은 코퍼스에서 hit@3 0.8108 < hit@5 0.9081 이라 근거 포함률이 높은 쪽을 고른 것이다.
 GOLDEN = {
     "label": "기준 설정 (앵커 hit@5 0.9081)",
@@ -154,7 +175,7 @@ GOLDEN = {
     "caveat": "이 0.9081은 **181청크** 코퍼스에서 잰 값입니다. 판정 잣대(앵커 hit@5)는 "
               "지금 대시보드와 같지만 코퍼스가 다릅니다 — 되돌린 뒤 [한 번에 실행]으로 "
               "현재 코퍼스에서 다시 재세요.",
-    "values": {**DEFAULTS, "k": 5},
+    "values": {**DEFAULTS},
 }
 
 

@@ -72,7 +72,8 @@ python -m uvicorn web.main:app --host 127.0.0.1 --port 8501
 | 사용자 상태 | <http://127.0.0.1:8501/api/health> |
 | 관리자 | <http://127.0.0.1:8600> |
 
-관리자 설정을 저장한 뒤 사용자 서버를 재시작해야 별도 프로세스에 새 값이 적용됩니다.
+관리자 런타임 설정은 저장 후 사용자 챗봇의 다음 생성 요청부터 자동 반영됩니다. 사용자 서버는
+관리자 설정 파일의 원자적 교체를 감지하며, 청킹처럼 재빌드가 필요한 설정은 예외입니다.
 
 ## 3. 데이터와 인덱스
 
@@ -224,7 +225,7 @@ python runner.py --mode files --config '{}'
 리포지토리 루트에서:
 
 ```bash
-python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py tests/test_qform_boost.py -q
+python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py tests/test_qform_boost.py tests/test_answer_gate.py tests/test_context_k.py tests/test_model_selection.py -q
 node --check web/static/app.js
 node --check admin/static/app.js
 python chatbot/verify_qform_e2e.py
@@ -235,13 +236,16 @@ python chatbot/verify_qform_multiturn.py
 
 2026-08-30 기준:
 
-- Python: 28 passed
+- Python: 47 passed
 - 사용자·관리자 UI JavaScript 문법: 통과
 - Q-Form E2E: 104조합 통과
 - Q-Form 통합: 전 시나리오 통과
 - Q-Form 실검색 첨부 반환: 실제 Searcher → chain → 첨부 실파일 통과(외부 LLM 0콜)
 - Q-Form 검색 조건: `field: value` 확장·원문 생성 분리·기본 ON 통과
 - Q-Form 멀티턴: 24/24 통과
+- 답변 검증 게이트: 경고·재생성·차단·비활성화 및 관리자 런타임 주입 통과
+- 검색 문맥 수: 기본 5청크·명시적 재정의·관리자 다음 질의 반영 통과
+- 챗봇 모델: HCX/DeepSeek/Upstage 전환·모델명 동기화·관리자 다음 질의 반영 통과
 
 ## 8. OOS 운영 확인
 
