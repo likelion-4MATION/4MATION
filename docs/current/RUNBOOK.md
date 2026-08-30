@@ -87,6 +87,10 @@ python build_dataset.py --crawl
 python pipeline.py --manifest crawl_manifest.csv --use-cache --rebuild
 ```
 
+첨부 단계는 이전 `data/files/manifest.json`의 성공 파일을 크기와 SHA-256으로 검증해
+재사용합니다. 누락·손상·이전 실패 항목만 다시 다운로드하므로 같은 빌드를 반복해도
+첨부 파일이 새 이름으로 계속 늘어나지 않아야 합니다.
+
 ### 저장 원문으로 재생성
 
 ```bash
@@ -125,9 +129,9 @@ wc -l crawler/data/chunks.jsonl crawler/data/index/chunk_meta.jsonl
 python -c "import faiss; x=faiss.read_index('crawler/data/index/faiss.index'); print('ntotal=',x.ntotal,'dim=',x.d)"
 ```
 
-두 행 수와 FAISS `ntotal`이 같고 차원이 1024여야 합니다. 2026-08-30 작업 폴더 점검에서는
-추적 코퍼스가 181청크, 로컬 인덱스가 215청크였습니다. 로컬 인덱스는 Git 비추적 산출물이므로
-서비스·평가 전에 위 재빌드 명령으로 맞춰야 합니다.
+두 행 수와 FAISS `ntotal`이 같고 차원이 1024여야 합니다. 2026-08-30 전체 재빌드 기준값은
+`chunks.jsonl` 181행, `chunk_meta.jsonl` 181행, FAISS `ntotal=181`, `dim=1024`입니다.
+로컬 인덱스는 Git 비추적 산출물이므로 코퍼스가 바뀌면 서비스·평가 전에 반드시 다시 빌드합니다.
 
 ## 4. 검색과 평가
 
@@ -147,6 +151,7 @@ python -c "import rag; s=rag.Searcher(); print([(x['chunk_id'],x['page_title']) 
 cd crawler
 python eval.py chunk --gt gt_testset_retrieval_450.jsonl
 python eval.py chunk --gt gt_testset_retrieval_450.jsonl --mode hybrid_bf
+python eval.py chunk --gt gt_testset_retrieval_450.jsonl --report data/eval_chunk_report.md
 python eval.py span --gt gt_testset_retrieval_450.jsonl --limit 50
 ```
 
@@ -155,6 +160,8 @@ python eval.py span --gt gt_testset_retrieval_450.jsonl --limit 50
 - `chunk` 기본 판정: 앵커텍스트 전용
 - 앵커가 없는 문항: 실패가 아니라 지표 분모에서 제외
 - `gt_chunk_ids`: `--score chunk_id` 또는 `--id-fallback`을 명시한 감사 경로에서만 사용
+- 2026-08-30 전체 재빌드 평가: relation-aware Hit@5 `0.714`, Hit@10 `0.788`, MRR@10 `0.493`
+- 최신 상세 결과: `data/eval_chunk_report.md`
 
 검색을 생략하고 저장 결과를 평가하려면:
 
@@ -217,18 +224,24 @@ python runner.py --mode files --config '{}'
 리포지토리 루트에서:
 
 ```bash
-python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py -q
+python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py tests/test_qform_boost.py -q
 node --check web/static/app.js
+node --check admin/static/app.js
 python chatbot/verify_qform_e2e.py
 python chatbot/verify_qform_integration.py
+python chatbot/verify_qform_search_attachments.py
 python chatbot/verify_qform_multiturn.py
 ```
 
 2026-08-30 기준:
 
-- Python: 21 passed
-- 사용자 UI JavaScript 문법: 통과
-- Q-Form E2E·통합·멀티턴 검증: 정상 종료
+- Python: 28 passed
+- 사용자·관리자 UI JavaScript 문법: 통과
+- Q-Form E2E: 104조합 통과
+- Q-Form 통합: 전 시나리오 통과
+- Q-Form 실검색 첨부 반환: 실제 Searcher → chain → 첨부 실파일 통과(외부 LLM 0콜)
+- Q-Form 검색 조건: `field: value` 확장·원문 생성 분리·기본 ON 통과
+- Q-Form 멀티턴: 24/24 통과
 
 ## 8. OOS 운영 확인
 
@@ -247,9 +260,12 @@ OOS 안내처는 게시·활성·링크 정상 상태인 행만 사용자에게 
 
 ## 9. 알려진 제약
 
-- BGE-m3와 fp32 라우터를 함께 로드하면 메모리를 약 4.8GB 사용합니다. 메모리 부족 시
-  `exit 139`가 발생할 수 있습니다.
+- BGE-m3와 fp32 라우터를 함께 로드하면 메모리를 약 4.8GB 사용합니다. 긴 청크와 Q-Form
+  단독 라우터 추론의 `exit 139`를 막기 위해 PyTorch CPU 스레드는 기본 1개입니다. 메모리
+  여유가 충분한 서버에서만 `RAG_TORCH_THREADS=2`처럼 명시적으로 올립니다.
 - 라우터 MSP는 체계적으로 과신되어 OOS 판정 신호로 쓰지 않습니다.
+- 보호한도 원문 본문은 `1억원`이지만 같은 페이지의 보험사고 각주 한 문장에는 공식 사이트가
+  아직 `5천만원`을 노출합니다. 크롤러에서 임의 교정하지 않고 원문 그대로 보존합니다.
 - 관리자 최신성 가드는 CRUD·미리보기까지 구현됐지만 답변 생성 경로에는 아직 연결되지 않았습니다.
 - `data/index/`와 관리자 런타임 DB·설정은 Git 비추적이므로 새 환경에서 다시 생성해야 합니다.
 - essential 재구성 전에 존재하던 실험·튜닝·평가 보조 스크립트는 현재 RUNBOOK의 실행 계약이

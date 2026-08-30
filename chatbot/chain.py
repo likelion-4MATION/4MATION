@@ -238,7 +238,8 @@ def _route(label: str) -> str:
     return "reject" if label == "소관밖" else "rag"
 
 
-def _reject_result(label: str, reason: str, cls_meta: dict, k: int) -> dict:
+def _reject_result(label: str, reason: str, cls_meta: dict, k: int,
+                   query: str, retrieval_query: str) -> dict:
     """reject 경로 반환 조립 — 검색·생성·검증 생략. 계약 4필드 + checks/_meta 완비(T2 검증 대상)."""
     return {
         "text": REJECT_TEXT,
@@ -248,21 +249,26 @@ def _reject_result(label: str, reason: str, cls_meta: dict, k: int) -> dict:
         "checks": {"ok": True, "flags": [], "skipped": "고정 거절 문구"},  # 모델 생성물 아님 — 검증 비대상
         "attachments": [],  # 소관 밖 — 반환 첨부 없음(계약 부가 필드)
         "_meta": {"model": MODEL_NAME, "cls_label": label, "cls_reason": reason, **cls_meta,
-                  "latency_ms": cls_meta.get("cls_latency_ms"), "k": k},
+                  "latency_ms": cls_meta.get("cls_latency_ms"), "k": k,
+                  "original_query": query, "retrieval_query": retrieval_query,
+                  "retrieval_applied": False, "retrieval_boosted": False},
     }
 
 
-def answer(query: str, k: int = 3, qform: dict | None = None) -> dict:
+def answer(query: str, k: int = 3, qform: dict | None = None, *,
+           retrieval_query: str | None = None) -> dict:
     """계약 4필드 + 부가(checks/_meta). 분류 선행 — 소관밖은 검색·생성 없이 즉시 거절.
 
     qform(큐폼 슬롯 dict, 선택): 주어지면 첨부를 조합 조인으로 후단 필터(B안, §3-1).
-    파라미터만 추가 — 반환 4필드·검색·생성은 불변(D3, §1-5). None이면 기존 동작 그대로."""
+    retrieval_query(선택): 검색과 검색 유사도에만 사용한다. 분류와 생성 프롬프트의
+    질문은 항상 ``query`` 원문이며, 생략하면 기존처럼 원문으로 검색한다."""
+    search_query = retrieval_query if retrieval_query is not None else query
     label, reason, cls_meta = classify(query)
     route = _route(label)
     if route == "reject":
-        return _reject_result(label, reason, cls_meta, k)
+        return _reject_result(label, reason, cls_meta, k, query, search_query)
 
-    hits = get_searcher().search(query, k=k, mode="hybrid_bf")
+    hits = get_searcher().search(search_query, k=k, mode="hybrid_bf")
     context = "\n\n".join(f"[출처{i}] {h['page_title']}\n{h['text']}" for i, h in enumerate(hits, 1))
     messages = [{"role": "system", "content": SYS_PROMPT_V2},
                 {"role": "user", "content": f"[참고문서]\n{context}\n\n[질문]\n{query}"}]
@@ -282,23 +288,28 @@ def answer(query: str, k: int = 3, qform: dict | None = None) -> dict:
     return {
         "text": text,
         "sources": sources,
-        "confidence": _confidence(query),
+        "confidence": _confidence(search_query),
         "route": route,
         "checks": checks,           # 부가 필드(계약 외 추가 — 축소 아님)
         "attachments": attach,      # 부가 필드 — 근거 문서 첨부(다운로드용). 없으면 []
         "_meta": {"model": MODEL_NAME, "cls_label": label, "cls_reason": reason, **cls_meta,
-                  **meta, "k": k, "qform": qform, "retrieval": _retrieval_meta(hits)},
+                  **meta, "k": k, "qform": qform,
+                  "original_query": query, "retrieval_query": search_query,
+                  "retrieval_applied": True, "retrieval_boosted": search_query != query,
+                  "retrieval": _retrieval_meta(hits)},
     }
 
 
 def answer_in_scope(query: str, k: int = 3, qform: dict | None = None,
-                    bf: str | None = None) -> dict:
+                    bf: str | None = None, *, retrieval_query: str | None = None) -> dict:
     """상단 6-BF 라우터가 IN으로 확정한 절만 검색·생성한다.
 
     OOS 분류를 다시 수행하지 않으며, ``bf``가 있으면 검색의 업무 부스트에도 같은 값을
-    전달한다. 이 함수 자체에는 BF/OOS 임계값이 없다.
+    전달한다. ``retrieval_query`` 는 검색에만 쓰고 생성 질문은 ``query`` 원문을 유지한다.
+    이 함수 자체에는 BF/OOS 임계값이 없다.
     """
-    hits = get_searcher().search(query, k=k, mode="hybrid_bf", bf_override=bf)
+    search_query = retrieval_query if retrieval_query is not None else query
+    hits = get_searcher().search(search_query, k=k, mode="hybrid_bf", bf_override=bf)
     context = "\n\n".join(f"[출처{i}] {h['page_title']}\n{h['text']}" for i, h in enumerate(hits, 1))
     messages = [{"role": "system", "content": SYS_PROMPT_V2},
                 {"role": "user", "content": f"[참고문서]\n{context}\n\n[질문]\n{query}"}]
@@ -314,11 +325,13 @@ def answer_in_scope(query: str, k: int = 3, qform: dict | None = None,
               if text is not None else {"ok": False, "flags": ["생성 실패 — 검증 생략"], "results": {}})
     attach = attachments.collect(hits, qform=qform)
     return {
-        "text": text, "sources": sources, "confidence": _confidence(query), "route": "rag",
+        "text": text, "sources": sources, "confidence": _confidence(search_query), "route": "rag",
         "checks": checks, "attachments": attach,
         "_meta": {"model": MODEL_NAME, "cls_label": bf, "cls_reason": "상단 6-BF 라우터 확정",
                   "cls_calls": 0, "cls_parse_fail": 0, "cls_latency_ms": 0,
                   **meta, "k": k, "qform": qform, "business_function": bf,
+                  "original_query": query, "retrieval_query": search_query,
+                  "retrieval_applied": True, "retrieval_boosted": search_query != query,
                   "retrieval": _retrieval_meta(hits)},
     }
 

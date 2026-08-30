@@ -24,8 +24,8 @@ from __future__ import annotations
 IN_SCOPE_BF = "착오송금 반환 신청"
 
 # ver4 M5 — 스코프 파라미터화. **기본값은 착오송금 단일이라 ver1~ver4 현행과 완전 동일하다.**
-# 확장(`msdr+dpin`)은 `qform_config.QFORM_SCOPE` 토글로만 켠다 — 쿼리 부스트를 G13 때문에
-# 기본 OFF 로 둔 것과 같은 패턴이다. **배관은 깔되 밸브는 측정 후에 연다.**
+# 확장(`msdr+dpin`)은 `qform_config.QFORM_SCOPE` 토글로만 켠다. 검색 조건 반영 여부와
+# 슬롯 추출 업무 범위는 서로 다른 설정이므로 한 토글로 묶지 않는다.
 # 규칙을 추가하지 않았다 — 지금 있는 결정론 규칙이 예금보험금에 어떻게 작동하는지 재는 것이 목적이다.
 SCOPE_SETS = {
     "msdr": (IN_SCOPE_BF,),
@@ -255,7 +255,7 @@ def extract(query: str, business_function=_UNSET, *, scope=None) -> dict:
     #
     # 유도가 하던 일은 survivors 에 없다 — `sub_task` 가 이미 행 집합을 확정하고,
     # 같은 `sub_task` 행은 party 가 전부 같기 때문이다(실측: 발동 9건·첨부 건수 무변동).
-    # 남은 소비처는 쿼리 부스트 직렬화(기본 OFF)와 패널 표시뿐이다.
+    # 남은 소비처는 검색 전용 Q-Form 직렬화와 패널 표시뿐이다.
     for label, kws in _PARTY_RULES:
         m = _hits_any(qn, kws)
         if m:
