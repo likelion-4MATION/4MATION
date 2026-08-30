@@ -163,17 +163,30 @@ def _ops(cfg: dict) -> dict:
 
     (`BASELINE` 의 1.72·4.0·9.7 이 조기차단을 반영한 값이다 — 표와 계산이 서로 어긋나 있었다.)
 
-    실제로 이 숫자를 움직이는 스위치는 셋이다 — ① 답변 길이 상한(`maxTokens`, ①탭)
-    ② 되묻기 문구 생성 방식(`askMode`, ②탭) ③ 되묻기 횟수·적용 업무(③탭).
+    실제로 이 숫자를 움직이는 스위치는 넷이다 — ① 답변 길이 상한(`maxTokens`, ①탭)
+    ② 답변 게이트 재생성 횟수(①탭) ③ 되묻기 문구 생성 방식(`askMode`, ②탭)
+    ④ 되묻기 횟수·적용 업무(③탭).
+
+    검증 실패율은 아직 실측하지 않았으므로 재생성 비용은 **모든 RAG 답변이 실패한다는
+    최악 조건의 상한**으로 계산한다. 실제 평균은 이 값보다 작거나 같다.
     """
     ask = 0.0
     if cfg.get("askMode") == "llm":
         ask = FIRE_RATE.get(cfg.get("QFORM_SCOPE"), 0.02) * int(cfg.get("MAX_ASK_TURNS", 2))
-    calls = FAST_SHARE * 1 + (1 - FAST_SHARE) * 2 + ask
+    gate = 0.0
+    if cfg.get("answerChecksEnabled") and cfg.get("answerGateMode") == "regenerate":
+        gate = (1 - FAST_SHARE) * int(cfg.get("answerGateMaxRetries", 1))
+    calls = FAST_SHARE * 1 + (1 - FAST_SHARE) * 2 + ask + gate
     length = _length_factor(cfg)
-    latency = FAST_SHARE * LAT_FAST + (1 - FAST_SHARE) * LAT_RAG * length + ask * LAT_ASK
+    latency = (FAST_SHARE * LAT_FAST + (1 - FAST_SHARE) * LAT_RAG * length
+               + ask * LAT_ASK + gate * LAT_RAG * length)
+    # 경로상 콜 수는 모델과 무관하지만, 응답시간·단가는 HCX 실측/추정 기준이다.
+    # DeepSeek 실측을 아직 하지 않았으므로 HCX 숫자를 재사용하지 않는다.
+    measured_provider = cfg.get("llmProvider", "hcx") == "hcx"
     cost = BASELINE["cost"] * (calls / BASELINE["calls"]) * length
-    return {"calls": round(calls, 2), "latency": round(latency, 2), "cost": round(cost, 1)}
+    return {"calls": round(calls, 2),
+            "latency": round(latency, 2) if measured_provider else None,
+            "cost": round(cost, 1) if measured_provider else None}
 
 
 def baseline_of(saved: dict) -> dict:
@@ -269,20 +282,29 @@ def projection(cfg: dict, changed: list[str], saved: dict | None = None) -> dict
     """변경 후 예상 지표. 기준선은 **저장된 설정**에서 계산한다."""
     ops = _ops(cfg)
     base = saved if saved is not None else cfg
+    gate_upper = bool(cfg.get("answerChecksEnabled")
+                      and cfg.get("answerGateMode") == "regenerate")
     return {
         "best": best_of(base),
         "accuracy": accuracy_for(cfg, changed),
-        "calls": {"value": ops["calls"], "grade": "computed",
-                  "src": f"조기차단 비중 {FAST_SHARE} × 경로별 콜 수 (OOS 1 / RAG 2) + 되묻기 발동률"},
+        "calls": {"value": ops["calls"], "grade": "estimated" if gate_upper else "computed",
+                  "src": (f"조기차단 비중 {FAST_SHARE} × 경로별 콜 수 (OOS 1 / RAG 2) + 되묻기 발동률"
+                          + (" · 답변 검증 재생성은 전 RAG 실패 가정 상한" if gate_upper else ""))},
         "latency": {"value": ops["latency"],
                     # 길이 계수가 걸리면 실측 조합이 아니라 가정이 섞인다 — 등급을 낮춘다
-                    "grade": "computed" if _length_factor(cfg) == 1.0 else "estimated",
-                    "src": f"조기차단 비중 {FAST_SHARE} × 경로별 실측 "
-                           f"(OOS {LAT_FAST}s / RAG {LAT_RAG}s)"
-                           + ("" if _length_factor(cfg) == 1.0
-                              else f" · 답변 길이 상한은 생성 시간 비중 {GEN_SHARE} 가정")},
-        "cost": {"value": ops["cost"], "grade": "estimated",
-                 "src": "콜 수 × 답변 길이 계수 (추정)"},
+                    "grade": ("unmeasured" if ops["latency"] is None else
+                              ("computed" if _length_factor(cfg) == 1.0 and not gate_upper
+                               else "estimated")),
+                    "src": ("선택 모델의 응답시간 실측 없음" if ops["latency"] is None else
+                            f"조기차단 비중 {FAST_SHARE} × 경로별 실측 "
+                            f"(OOS {LAT_FAST}s / RAG {LAT_RAG}s)"
+                            + ("" if _length_factor(cfg) == 1.0
+                               else f" · 답변 길이 상한은 생성 시간 비중 {GEN_SHARE} 가정")
+                            + (" · 재생성은 전 RAG 실패 가정 상한" if gate_upper else ""))},
+        "cost": {"value": ops["cost"],
+                 "grade": "unmeasured" if ops["cost"] is None else "estimated",
+                 "src": ("선택 모델의 API 단가 실측 없음" if ops["cost"] is None
+                         else "콜 수 × 답변 길이 계수 (추정)")},
         "baseline": baseline_of(base),
     }
 

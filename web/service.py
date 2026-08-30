@@ -38,7 +38,8 @@ def _utc_now() -> str:
 
 def _humanize_error(code) -> str:
     code = str(code or "")
-    if code in {"missing_deepseek_configuration", "missing_hcx_configuration"}:
+    if code in {"missing_deepseek_configuration", "missing_hcx_configuration",
+                "missing_upstage_configuration"}:
         return "선택한 LLM의 API 설정이 없습니다. 서버 설정을 확인해 주세요."
     if code == "call_budget_exhausted":
         return "이번 서버의 모델 호출 예산을 모두 사용했습니다. 잠시 후 관리자에게 문의해 주세요."
@@ -73,6 +74,22 @@ class RuntimeBackend:
         self.qmp = qform_memory_panel
         self.qform_trace = qform_trace
         self.settings_store = settings
+        self._settings_revision = self._config_revision()
+
+    def _config_revision(self):
+        """관리자 설정 파일의 교체 여부를 값 노출 없이 감지한다."""
+        try:
+            stat = self.settings_store.CONFIG_PATH.stat()
+            return stat.st_mtime_ns, stat.st_size, stat.st_ino
+        except OSError:
+            return None
+
+    def refresh_runtime(self) -> None:
+        """관리자 저장 내용을 다음 생성 요청부터 재시작 없이 반영한다."""
+        revision = self._config_revision()
+        if revision != self._settings_revision:
+            self.settings_store.apply_runtime()
+            self._settings_revision = revision
 
     def new_flow(self) -> dict:
         return self.qform_flow.new_state()
@@ -83,18 +100,21 @@ class RuntimeBackend:
         return config
 
     def start(self, flow: dict, text: str, ui: dict, report_context: dict) -> dict:
+        self.refresh_runtime()
         return self.orchestrator.start_turn(
             flow, text, ask_mode=ui["ask_mode"], boost=ui["boost"],
             config=self.config(ui), report_context=report_context,
         )
 
     def reply(self, flow: dict, text: str, ui: dict, *, value: str | None = None) -> dict:
+        self.refresh_runtime()
         return self.qform_flow.reply(
             flow, text, value=value, ask_mode=ui["ask_mode"], boost=ui["boost"],
             config=self.config(ui),
         )
 
     def skip(self, flow: dict, ui: dict) -> dict:
+        self.refresh_runtime()
         return self.qform_flow.skip(flow, boost=ui["boost"], config=self.config(ui))
 
     def edit(self, flow: dict, field: str, value: str | None, ui: dict) -> dict:
@@ -104,9 +124,11 @@ class RuntimeBackend:
         )
 
     def answer_now(self, flow: dict, ui: dict) -> dict:
+        self.refresh_runtime()
         return self.qform_flow.answer_now(flow, boost=ui["boost"])
 
     def next_unit(self, flow: dict, ui: dict, report_context: dict) -> dict | None:
+        self.refresh_runtime()
         return self.orchestrator.next_unit(
             flow, ask_mode=ui["ask_mode"], boost=ui["boost"],
             config=self.config(ui), report_context=report_context,
