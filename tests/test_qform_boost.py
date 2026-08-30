@@ -120,7 +120,7 @@ def test_chain_searches_expanded_query_but_prompts_with_original_query():
         chain._searcher, chain._llm = original_searcher, original_llm
 
     assert searcher.calls[0] == {
-        "query": RETRIEVAL, "k": 3, "mode": "hybrid_bf", "bf": "착오송금 반환 신청"
+        "query": RETRIEVAL, "k": 5, "mode": "hybrid_bf", "bf": "착오송금 반환 신청"
     }
     assert searcher.calls[1] == {"query": RETRIEVAL, "k": 1, "mode": "dense", "bf": None}
     user_prompt = prompts[0]["messages"][1]["content"]
@@ -135,7 +135,7 @@ def test_orchestrator_forwards_expanded_query_to_scoped_chain():
     query = "착오송금 반환 신청을 철회하고 싶어요"
     received = {}
 
-    def answer_in_scope(original_query, k=3, qform=None, bf=None, *, retrieval_query=None):
+    def answer_in_scope(original_query, k=None, qform=None, bf=None, *, retrieval_query=None):
         received.update(
             original_query=original_query,
             k=k,
