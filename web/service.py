@@ -223,7 +223,9 @@ class ChatService:
         slots = dict(event.get("slots") or {})
         self._append(history, {
             "role": "answer", "r": event["result"], "slots": slots,
-            "search_q": event.get("boosted"), "query": event.get("search_q"),
+            "query": event.get("query") or event.get("search_q"),
+            "retrieval_query": event.get("search_q"),
+            "search_q": event.get("boosted"),
             "trace": trace, "followups": self.backend.followups(slots),
             "unit": event.get("unit"), "routing": event.get("routing"),
         })
@@ -385,6 +387,8 @@ class ChatService:
             "sources": result.get("sources") or [], "checks": result.get("checks") or {},
             "attachments": attachments, "slots": turn.get("slots") or {},
             "followups": turn.get("followups") or [], "search_q": turn.get("search_q"),
+            "original_query": turn.get("query"),
+            "retrieval_query": turn.get("retrieval_query") or turn.get("query"),
             "retrieval": meta.get("retrieval") or [], "action": meta.get("action"),
             "referral": result.get("referral"), "phone_guide": result.get("phone_guide"),
             "trace": turn.get("trace"),

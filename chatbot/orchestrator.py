@@ -42,11 +42,14 @@ def _report(decision: dict, report_context: dict | None) -> bool:
         return False
 
 
-def _scoped_answer(answer_fn, clause: str, bf: str, slots: dict) -> dict:
+def _scoped_answer(answer_fn, clause: str, bf: str, slots: dict,
+                   retrieval_query: str | None = None) -> dict:
     if answer_fn is not None:
         return answer_fn(clause, bf, slots)
     import chain
-    return chain.answer_in_scope(clause, bf=bf, qform=slots)
+    return chain.answer_in_scope(
+        clause, bf=bf, qform=slots, retrieval_query=retrieval_query
+    )
 
 
 def _process(flow: dict, unit: dict, *, ask_mode: str, boost: bool, config,
@@ -60,7 +63,9 @@ def _process(flow: dict, unit: dict, *, ask_mode: str, boost: bool, config,
         ev = qform_flow.start(
             flow, unit["text"], ask_mode=ask_mode, boost=boost, config=config,
             business_function=bf, detect_multi=False,
-            answer_fn=lambda q, slots: _scoped_answer(answer_fn, q, bf, slots),
+            answer_fn=lambda q, slots, retrieval_query=None: _scoped_answer(
+                answer_fn, q, bf, slots, retrieval_query
+            ),
         )
     else:
         # 라우터 자체 장애는 세부분류 LLM으로 숨기지 않고 최종 안전값으로 바로 닫는다.
@@ -73,7 +78,8 @@ def _process(flow: dict, unit: dict, *, ask_mode: str, boost: bool, config,
         result = oos_policy.build_result(decision, report_saved=saved)
         flow.update({"base_q": unit["text"], "bf": None, "pending_slot": None,
                      "ask_turn": 0, "qform": {f: None for f in qform_flow.SLOT_FIELDS}})
-        ev = {"kind": "answer", "result": result, "slots": {}, "search_q": unit["text"],
+        ev = {"kind": "answer", "result": result, "slots": {}, "query": unit["text"],
+              "search_q": unit["text"],
               "boosted": None, "survivors": []}
 
     ev["unit"] = {k: unit[k] for k in ("unit_id", "order", "text")}

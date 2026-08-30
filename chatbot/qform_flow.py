@@ -32,6 +32,7 @@
 """
 from __future__ import annotations
 
+import inspect
 import pathlib
 import sys
 
@@ -82,9 +83,26 @@ def _default_classify(query: str):
     return classify_query_bf(query)
 
 
-def _default_answer(query: str, qform: dict):
+def _default_answer(query: str, qform: dict, *, retrieval_query: str | None = None):
     import chain                             # 지연 임포트 — 되묻기 턴에는 여기까지 오지 않는다
-    return chain.answer_in_scope(query, qform=qform)
+    return chain.answer_in_scope(query, qform=qform, retrieval_query=retrieval_query)
+
+
+def _call_answer(answer_fn, query: str, retrieval_query: str, slots: dict):
+    """원문/검색문을 분리해 호출하되 기존 2인자 검증 스텁은 보존한다."""
+    if answer_fn is None:
+        return _default_answer(query, slots, retrieval_query=retrieval_query)
+    try:
+        parameters = inspect.signature(answer_fn).parameters
+        accepts_retrieval = (
+            "retrieval_query" in parameters
+            or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+        )
+    except (TypeError, ValueError):
+        accepts_retrieval = False
+    if accepts_retrieval:
+        return answer_fn(query, slots, retrieval_query=retrieval_query)
+    return answer_fn(query, slots)
 
 
 def _clean(slots: dict) -> dict:
@@ -501,15 +519,16 @@ def answer_now(state: dict, *, boost: bool = False, answer_fn=None) -> dict:
 
 
 def _finalize(state: dict, *, boost: bool, answer_fn) -> dict:
-    """검색·생성. 부스트가 켜져 있으면 슬롯을 **검색 쿼리에만** 직렬화해 덧붙인다."""
+    """검색·생성. 검색문은 확장할 수 있지만 생성 질문은 항상 사용자 원문이다."""
     slots = dict(state["qform"])
-    search_q, boosted = state["base_q"], None
+    query = state["base_q"]
+    search_q, boosted = query, None
     if boost:
         extra = qform_state.serialize(slots)
         if extra:
-            search_q = f"{state['base_q']} {extra}"
+            search_q = f"{query}\n\n{extra}"
             boosted = search_q
-    result = (answer_fn or _default_answer)(search_q, slots)
+    result = _call_answer(answer_fn, query, search_q, slots)
     return {"kind": "answer", "result": result, "slots": slots,
-            "search_q": search_q, "boosted": boosted,
+            "query": query, "search_q": search_q, "boosted": boosted,
             "survivors": qform_state.survivors(slots)}

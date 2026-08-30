@@ -225,16 +225,23 @@ print(f"  → {'OK' if ac6 else 'DIFF ⛔'}  (첨부는 실제 attachments.colle
 if not ac6:
     fails.append(("AC6", "v1 동일", f"{len(bad6)}건 상이"))
 
-# 부스트 ON 은 검색 쿼리만 바뀌고 슬롯·첨부는 그대로여야 한다
+# 부스트 ON 은 검색 쿼리만 바뀌고 생성용 원문·슬롯·첨부는 그대로여야 한다
 CALLS.clear()
-run(["착오송금 반환 신청 서류가 뭐예요?", "본인이 직접 신청해요"], boost=True)
-b_q, b_slots = CALLS[-1]
+_, b_events = run(["착오송금 반환 신청 서류가 뭐예요?", "본인이 직접 신청해요"], boost=True)
+b_original, b_slots = CALLS[-1]
+b_q = b_events[-1]["search_q"]
 CALLS.clear()
-run(["착오송금 반환 신청 서류가 뭐예요?", "본인이 직접 신청해요"], boost=False)
-o_q, o_slots = CALLS[-1]
-print(f"  [부스트 ON] 검색어 \"{b_q}\"")
+_, o_events = run(["착오송금 반환 신청 서류가 뭐예요?", "본인이 직접 신청해요"], boost=False)
+o_original, o_slots = CALLS[-1]
+o_q = o_events[-1]["search_q"]
+boost_split = (b_original == o_original == o_q and b_q != o_q
+               and "sub_task: 반환신청" in b_q and "qualification: 본인" in b_q)
+print(f"  [부스트 ON] 검색어\n{b_q}")
 print(f"             슬롯 {'동일' if b_slots == o_slots else '다름✗'} · "
-      f"첨부 {'동일' if att_key(b_slots) == att_key(o_slots) else '다름✗'} (쿼리만 바뀐다)")
+      f"첨부 {'동일' if att_key(b_slots) == att_key(o_slots) else '다름✗'} · "
+      f"생성 원문 보존 {'OK' if boost_split else 'DIFF✗'}")
+if not boost_split:
+    fails.append(("AC6-boost", "검색문만 field:value 확장", f"원문={b_original!r} · 검색문={b_q!r}"))
 
 # ── AC7. 시험 질의셋 A~G 무크래시 ──────────────────────────────────────────
 print("\n── AC7. 시험 질의셋 A~G 무크래시 ──")
