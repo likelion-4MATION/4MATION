@@ -94,6 +94,41 @@ def download_one(session: requests.Session, site: str, base_url: str,
     return None, None, f"HTTP {r.status_code}, Content-Type={r.headers.get('Content-Type')}, len={len(r.content)}"
 
 
+def load_existing_cache() -> dict[tuple, dict]:
+    """이전 성공 파일을 토큰 기준으로 검증해 재사용한다.
+
+    같은 첨부 토큰은 재실행해도 같은 파일을 가리킨다. 기존 매니페스트를 무시하면
+    매 빌드마다 ``_1``, ``_2`` 파일이 쌓이므로, 파일 크기와 SHA-256이 모두 맞는
+    성공 레코드만 안전하게 캐시에 올린다. 실패·누락·손상 레코드는 다시 다운로드한다.
+    """
+    if not MANIFEST_PATH.exists():
+        return {}
+    try:
+        previous = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    cache: dict[tuple, dict] = {}
+    result_fields = ("status", "orig_filename", "file_type", "stored_path",
+                     "size_bytes", "sha256")
+    for old in previous if isinstance(previous, list) else []:
+        if old.get("status") != "ok" or not old.get("stored_path"):
+            continue
+        path = pathlib.Path(old["stored_path"])
+        try:
+            content = path.read_bytes()
+        except OSError:
+            continue
+        if len(content) != old.get("size_bytes"):
+            continue
+        if hashlib.sha256(content).hexdigest() != old.get("sha256"):
+            continue
+        key = (old.get("doc_id"), old.get("enc_real"), old.get("enc_temp"))
+        if all(key):
+            cache.setdefault(key, {k: old[k] for k in result_fields if k in old})
+    return cache
+
+
 def main() -> None:
     docs = []
     for p in sorted(PARSED_DIR.glob("*.json")):
@@ -110,7 +145,9 @@ def main() -> None:
     ok_count = fail_count = 0
     # 같은 문서가 페이지 내 여러 곳(예: 본인/대리인 탭)에 동일 토큰으로 중복
     # 노출되는 경우가 실사에서 확인됨 — doc_id당 토큰 캐시로 재요청 방지.
-    token_cache: dict[tuple, dict] = {}  # (doc_id, enc_real, enc_temp) -> 결과 필드(status 등)
+    token_cache = load_existing_cache()  # (doc_id, enc_real, enc_temp) -> 결과 필드(status 등)
+    if token_cache:
+        print(f"[cache] 이전 첨부 {len(token_cache)}건 검증 완료 — 재다운로드 없이 재사용")
 
     for rec in docs:
         doc_id = rec["doc_id"]

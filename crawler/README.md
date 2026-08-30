@@ -91,6 +91,9 @@ python build_dataset.py --crawl     # 라이브 수집부터
 python build_dataset.py --no-fetch  # 첨부 실다운로드 생략
 ```
 
+첨부 단계는 이전 `data/files/manifest.json`의 성공 레코드를 파일 크기와 SHA-256으로
+검증해 재사용합니다. 파일이 없거나 손상된 항목과 이전 실패 항목만 다시 다운로드합니다.
+
 ### 인덱스
 
 ```bash

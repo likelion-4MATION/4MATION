@@ -216,8 +216,15 @@ python chatbot/verify_qform_multiturn.py
 
 ### `exit 139` 또는 메모리 부족
 
-BGE-m3와 fp32 라우터를 함께 올리는 경로는 메모리를 약 4.8GB 사용합니다. 다른 프로세스를 닫고
-다시 실행합니다. 현재 체크포인트는 분류 회귀 검증 없이 임의로 bf16으로 바꾸지 않습니다.
+BGE-m3와 fp32 라우터를 함께 올리는 경로는 메모리를 약 4.8GB 사용합니다. 현재 코드는 긴 청크와
+Q-form 단독 라우터 추론을 안정적으로 처리하도록 PyTorch CPU 스레드를 기본 1개로 제한합니다.
+메모리 여유가 충분한 서버에서 속도를 높이려면 아래처럼 스레드 수를 명시해 실행할 수 있습니다.
+
+```bash
+(cd crawler && RAG_TORCH_THREADS=2 python pipeline.py --manifest crawl_manifest.csv --use-cache --rebuild)
+```
+
+현재 체크포인트는 분류 회귀 검증 없이 임의로 bf16으로 바꾸지 않습니다.
 
 ### SSL 인증서 오류
 
