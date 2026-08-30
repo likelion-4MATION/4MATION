@@ -380,7 +380,13 @@ function renderEvidence() {
     root.append(card);
   }
   if (answer.checks && !answer.checks.ok) {
-    root.append(element("h2", { className: "rail-title", text: "검증 플래그 · 차단 아님" }));
+    const action = answer.checks.gate?.action;
+    const gateLabel = {
+      blocked: "검증 게이트 · 답변 차단",
+      regenerate_exhausted: "검증 게이트 · 재생성 후 경고",
+      warned: "검증 플래그 · 답변 유지",
+    }[action] || "검증 플래그";
+    root.append(element("h2", { className: "rail-title", text: gateLabel }));
     for (const flag of answer.checks.flags || []) root.append(element("p", { text: flag }));
   }
 }

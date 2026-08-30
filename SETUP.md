@@ -11,7 +11,7 @@
 |---|---|
 | Python | 3.11 이상 |
 | 디스크 | 최소 8GB 여유 |
-| LLM | HCX 또는 DeepSeek API 설정 |
+| LLM | HCX, DeepSeek 또는 Upstage Solar API 설정 |
 | 라우터 | 선택. 로컬 체크포인트는 약 2.38GB |
 
 임베딩 모델 `dragonkue/BGE-m3-ko`는 약 2.2GB이며 최초 인덱스 생성 때 HuggingFace 캐시에
@@ -72,12 +72,19 @@ DEEPSEEK_API_KEY=
 DEEPSEEK_API_URL=https://api.deepseek.com/chat/completions
 DEEPSEEK_MODEL=deepseek-v4-flash
 
+UPSTAGE_API_KEY=
+UPSTAGE_API_URL=https://api.upstage.ai/v1/chat/completions
+UPSTAGE_MODEL=solar-pro3
+
 CLOVA_API_KEY=
 CLOVA_API_URL=
 CLOVA_MODEL=HCX-003
 ```
 
-- `LLM_PROVIDER`: `hcx` 또는 `deepseek`
+- `LLM_PROVIDER`: CLI 단독 실행의 초기값(`hcx`, `deepseek`, `upstage`). 웹 서비스는 관리자 콘솔의
+  `챗봇 모델` 설정을 우선 적용합니다.
+- Upstage 기본값은 [공식 Chat Completions 예시](https://console.upstage.ai/api-keys?api=chat)의
+  `https://api.upstage.ai/v1`·`solar-pro3` 형식에 맞췄습니다.
 - `.env`는 Git에 올리지 않습니다.
 - 라우터를 다른 경로에서 시험할 때만 `ROUTER_PATH`를 설정합니다.
 
