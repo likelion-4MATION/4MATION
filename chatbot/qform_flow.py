@@ -143,6 +143,32 @@ def _carryover_gate(cfg: dict, cls_bf, prev_bf, prev: dict) -> tuple[bool, str]:
     return True, "동일 업무 문맥"
 
 
+def _contextualize_followup_bf(query: str, cls_bf, prev_bf, cfg: dict):
+    """명시 업무가 없는 짧은 후속질의의 라우터 과분류만 직전 문맥으로 되돌린다.
+
+    6분류 라우터는 반드시 한 업무를 고르는 과신 모델이라 "온라인으로 신청하려면요?"도
+    채무조정으로 확정할 수 있다. 아래 세 조건을 모두 만족할 때만 불명(None)으로 되돌려
+    기존 이월 게이트가 직전 업무를 쓰게 한다.
+
+    - 라우터 판정이 직전 업무와 다름
+    - 결정론 키워드 분류에는 명시 업무 근거가 없음
+    - 직전 업무로 추출했을 때 실제 Q-form 슬롯 근거가 있음
+
+    따라서 "오늘 날씨"는 슬롯 근거가 없어 차단되고, "미수령금은?"처럼 명시 업무가
+    있는 전환은 키워드 근거가 있어 그대로 차단된다.
+    """
+    if cls_bf is None or prev_bf is None or cls_bf == prev_bf:
+        return cls_bf
+    try:
+        from rag import classify_query_bf_keyword
+        if classify_query_bf_keyword(query) is not None:
+            return cls_bf
+    except (ImportError, AttributeError):
+        return cls_bf
+    prior = extract(query, business_function=prev_bf, scope=cfg.get("QFORM_SCOPE"))
+    return None if any(prior.get(f) for f in SLOT_FIELDS) else cls_bf
+
+
 def start(state: dict, query: str, *, ask_mode: str = "template", boost: bool = False,
           classify_fn=None, answer_fn=None, llm_call=None, config=None,
           business_function: str | None = None, detect_multi: bool = True) -> dict:
@@ -166,6 +192,8 @@ def start(state: dict, query: str, *, ask_mode: str = "template", boost: bool = 
     # classify_fn/_default_classify 경로를 유지한다.
     cls_bf = business_function if business_function is not None \
         else (classify_fn or _default_classify)(query)
+    if cfg["SLOT_CARRYOVER"] and cfg["CARRYOVER_SCOPE"] != "off":
+        cls_bf = _contextualize_followup_bf(query, cls_bf, prev_bf, cfg)
     allow, reason = _carryover_gate(cfg, cls_bf, prev_bf, prev)
     # 업무 불명이면 직전 업무를 물려 추출기에 넣는다 — "그럼 법인은요?" 가 스코프
     # 게이트에 걸려 슬롯 0개로 죽는 것을 막는다. 이월이 막힌 턴에서는 상속하지 않는다.
