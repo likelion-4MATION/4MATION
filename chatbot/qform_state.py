@@ -194,14 +194,20 @@ def next_question(slots: dict, exclude: set | None = None,
 
 
 def serialize(slots: dict) -> str:
-    """슬롯 → 검색 쿼리에 덧붙일 문자열 (기획서 §8 ① 쿼리 직렬화).
-    비어있지 않은 슬롯 값을 표기순으로 이어붙인다. 다중값은 공백 전개."""
-    parts: list[str] = []
+    """확정 슬롯 → 검색 전용 ``field: value`` 블록.
+
+    필드명 없이 값만 이어붙이면 ``법인`` 같은 값이 어느 축의 조건인지 검색기가
+    구분할 수 없다. 고정 순서와 명시적 필드명을 사용하고, 비어 있는 값은 생략한다.
+    사용자 편집값의 개행은 한 칸으로 접어 블록 구조를 깨뜨리지 못하게 한다.
+    """
+    lines = ["[QFORM]"]
     for f in SLOT_FIELDS:
         v = slots.get(f)
         if v:
-            parts.extend(t for t in v.split(";") if t.strip())
-    return " ".join(parts)
+            value = " ".join(str(v).split())
+            if value:
+                lines.append(f"{f}: {value}")
+    return "\n".join(lines) if len(lines) > 1 else ""
 
 
 # ══════════════════════════════════════════════════════════════════════════

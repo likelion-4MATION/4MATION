@@ -20,7 +20,7 @@ class SessionRecord:
     needs_regen: bool = False
     settings: dict = field(default_factory=lambda: {
         "ask_mode": "template",
-        "boost": False,
+        "boost": True,
         "qform_scope": "msdr",
         "show_trace": False,
     })
@@ -78,4 +78,3 @@ class SessionStore:
     def purge(self) -> int:
         with self._lock:
             return self._purge_locked()
-

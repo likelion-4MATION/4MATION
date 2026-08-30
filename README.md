@@ -11,7 +11,7 @@ RAG 챗봇과 운영용 관리자 콘솔을 제공하는 PoC입니다.
 |---|---|
 | 데이터 파이프라인 | 화이트리스트 38개 문서 수집, 본문 파싱, 첨부 연결, 청킹, FAISS·BM25 인덱스 생성 |
 | 검색 | `dragonkue/BGE-m3-ko` 1024차원 임베딩 + BM25 + RRF + 6업무 soft boost |
-| 챗봇 | HCX/DeepSeek 답변 생성, 출처 표시, 절 단위 처리, Q-Form 되묻기·슬롯 기억 |
+| 챗봇 | HCX/DeepSeek 답변 생성, 출처 표시, 절 단위 처리, Q-Form 되묻기·슬롯 기억·검색 조건 반영 |
 | OOS | 오류 신고, 검증된 타기관 안내, 일상 대화, 원거리 소관 밖, 유선 상담 안내 |
 | 사용자 웹 | FastAPI API + 빌드 과정 없는 HTML/CSS/JavaScript UI |
 | 관리자 | 검색·생성·Q-Form 설정, 재빌드 작업, 첨부 관리, OOS 안내처와 오류 신고함 |
@@ -91,15 +91,16 @@ wc -l crawler/data/chunks.jsonl crawler/data/index/chunk_meta.jsonl
 ## 검증
 
 ```bash
-python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py -q
+python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py tests/test_qform_boost.py -q
 node --check web/static/app.js
 python chatbot/verify_qform_e2e.py
 python chatbot/verify_qform_integration.py
+python chatbot/verify_qform_search_attachments.py
 python chatbot/verify_qform_multiturn.py
 ```
 
-2026-08-30 기준 Python 테스트는 21개가 통과합니다. Q-Form 검증 스크립트는 성공 시 별도
-출력 없이 종료될 수 있습니다.
+2026-08-30 기준 Python 테스트는 28개가 통과합니다. `verify_qform_search_attachments.py`는
+실제 로컬 검색 인덱스를 사용하되 외부 LLM API는 호출하지 않습니다.
 
 ## 문서 지도
 

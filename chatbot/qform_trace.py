@@ -139,14 +139,16 @@ def bf_debug_of(query: str) -> dict:
     return bf_debug(query)
 
 
-def _default_search(query: str, k: int = 3):
+def _default_search(query: str, k: int = 3, bf_override: str | None = None):
     """검색 hits 조달 — `answer()` 가 hits 를 돌려주지 않아 **결정론 재호출**로 얻는다.
 
     같은 쿼리·같은 k·같은 mode 라 `answer()` 내부 결과와 동일하다. LLM 콜 0
     (`rag.py` 무수정 원칙에서 허용하는 순수 함수 재호출 — CLAUDE.md §2-1).
     """
     import chain
-    return chain.get_searcher().search(query, k=k, mode="hybrid_bf")
+    return chain.get_searcher().search(
+        query, k=k, mode="hybrid_bf", bf_override=bf_override
+    )
 
 
 def _forms(atts: list) -> set:
@@ -269,10 +271,15 @@ def collect(query: str, bf_debug: dict, slots: dict, surv: list | None,
         hits = hits or []
     else:
         if hits is None:
-            hits = (search_fn or _default_search)(search_q, meta.get("k") or 3)
-        # 부스트 ON 이면 검색측은 **바뀐 쿼리**로 업무를 다시 분류한다(rag.search 내부).
-        # app 이 쓴 bf 와 갈릴 수 있어 두 값을 나란히 남긴다 — 패널이 거짓말하지 않도록.
-        s_bf = bf_debug_of(search_q)["bf"]
+            if search_fn is not None:
+                hits = search_fn(search_q, meta.get("k") or 3)
+            else:
+                hits = _default_search(
+                    search_q, meta.get("k") or 3, meta.get("business_function")
+                )
+        # 서비스 경로는 원문에서 확정한 업무를 bf_override로 검색에 전달한다.
+        # 메타가 없는 구형/단독 answer 결과에서만 검색문으로 진단값을 재계산한다.
+        s_bf = meta.get("business_function") or bf_debug_of(search_q)["bf"]
         L["search"] = {
             "status": "수집", "calls": 0, "k": meta.get("k") or 3,
             "boost_applied": bool(boost_on), "search_q": search_q,
@@ -377,7 +384,7 @@ if __name__ == "__main__":
         slots = extract(q, business_function=classify_query_bf(q))
         extra = qform_state.serialize(_clean(slots))
         if extra:
-            boosted.append(f"{q} {extra}")
+            boosted.append(f"{q}\n\n{extra}")
     mis_b = [b for b in boosted if bf_debug(b)["bf"] != classify_query_bf(b)]
     print(f"  부스트 변형 {len(boosted)}건: 불일치 {len(mis_b)}건 (기대 0)")
     ac1 = not mis and not mis_b
@@ -472,7 +479,7 @@ if __name__ == "__main__":
         if boost:
             extra = qform_state.serialize(slots)
             if extra:
-                search_q = f"{query} {extra}"
+                search_q = f"{query}\n\n{extra}"
             return bf, slots, search_q
         return bf, slots, search_q
 
@@ -496,7 +503,7 @@ if __name__ == "__main__":
           f" 갈리는 질의: 전체 {len(drift)}건 / 착오송금 {len(drift_ms)}건")
     for q, a, b in drift[:3]:
         print(f"    · {q[:34]:34} app={a} · 검색측={b}")
-    print("    (rag.py·chain.py 무수정 제약상 이번 스프린트 범위 밖 — 부스트 기본 OFF 로 회피)")
+    print("    (서비스 경로는 상단 BF를 bf_override로 전달해 확장 검색문의 재분류를 피한다)")
 
     # ── 샘플 트레이스 (패널에 나갈 형태 확인) ────────────────────────────────
     print("\n── 샘플: 점수 내역 재계산 (패널 노출 형태) ──")
