@@ -11,6 +11,7 @@ Store: doc_id 단위 upsert + content_hash 스킵 (recollect 재수집 트리거
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import pickle
 
@@ -37,7 +38,16 @@ _router_failed = False
 def get_model():
     global _model
     if _model is None:
+        os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+        import torch
         from sentence_transformers import SentenceTransformer
+
+        # BGE-M3의 긴 시퀀스를 CPU에서 임베딩할 때 PyTorch의 기본 스레드 수가
+        # 큰 환경은 작업 메모리가 급증해 프로세스가 SIGSEGV로 종료될 수 있다.
+        # 코퍼스 내용을 자르지 않고 안정적으로 처리하도록 보수적인 기본값을 쓴다.
+        # 메모리 여유가 충분한 서버는 RAG_TORCH_THREADS로 명시 조정할 수 있다.
+        threads = max(1, int(os.environ.get("RAG_TORCH_THREADS", "1")))
+        torch.set_num_threads(threads)
         _model = SentenceTransformer(MODEL_NAME)
     return _model
 

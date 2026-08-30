@@ -1,137 +1,140 @@
 <!-- 상태:current -->
-> **정본** — 지금 이대로 돌아간다. 바꾸려면 코드와 함께 바꿀 것
-> 문서 지도: `docs/README.md`(문서 지도) · `docs/프로젝트_전체흐름.md`(전체 그림·용어 해설)
 
----
+# 6업무 라우터 체크포인트
 
-# 질의 BF 라우터 체크포인트 — 배포와 설정
+> 기준: 2026-08-30 · 구현: `crawler/router_source.py`, `crawler/faq_bf_map.py`,
+> `crawler/rag.py`
 
-> **한 줄** 가중치 2.38GB는 git에 못 넣는다. 임베딩 모델(`dragonkue/BGE-m3-ko`)과 **같은 방식**으로 런타임에 HuggingFace에서 받아 캐시한다. 없어도 검색은 돈다.
-
----
-
-## 1. 이 체크포인트가 뭔가
-
-`crawler/faq_bf_map.py`의 `Router`가 로드하는 **6대 업무 시퀀스 분류기**다. 질의를 받아 업무 하나를 예측하고, `rag.classify_query_bf()`가 그 결과로 소프트부스트 대상을 정한다.
+## 모델
 
 | 항목 | 값 |
 |---|---|
-| 아키텍처 | `Qwen3ForSequenceClassification` (28층 · hidden 1024 · vocab 151669) — 파인튜닝본 |
-| 라벨 | 6개. `config.json`의 `id2label`이 `faq_bf_map.CANONICAL_BF`와 **정확히 일치해야** 로드된다(V1 검증) |
-| dtype / 크기 | float32 / `pytorch_model.bin` **2,383,231,423 B (2.22 GiB)** |
-| 설정파일 8개 | 15.9 MB — **레포에 커밋돼 있다** |
-| HF repo | `us788/moai_yebo_ft` (**private**) |
+| 아키텍처 | `Qwen3ForSequenceClassification` |
+| 라벨 수 | 6 |
+| dtype | float32 |
+| 가중치 | `pytorch_model.bin` · 2,383,231,423 bytes |
+| 로컬 폴더 | `router_moai_embedding_model/` |
+| 배포 저장소 | `us788/moai_yebo_ft` |
+| 매니페스트 | `crawler/data/router_manifest.json` |
 
-**왜 설정파일만 커밋했나** — `id2label`이 6대 업무와 맞는지, 아키텍처가 뭔지가 코드리뷰에서 보여야 한다. 가중치 없이도 `config.json`만으로 V1 검증 조건을 확인할 수 있다. 15.9MB는 레포에 부담이 아니다.
+`config.json`의 `id2label`은 `crawler/faq_bf_map.py`의 `CANONICAL_BF`와 정확히 일치해야
+합니다. 불일치하면 조용히 다른 업무를 boost할 수 있으므로 로드를 중단합니다.
 
-**왜 가중치는 못 넣나** — GitHub 단일 파일 상한 100MB, Release 에셋도 2GB 상한이다. 2.38GB는 어느 쪽도 안 된다. Git LFS는 되지만 히스토리에 박히고 대역폭 쿼터가 있다.
+## Git 포함 정책
 
----
+설정·토크나이저 8개 파일은 Git에 포함하고 2.38GB 가중치만 제외합니다.
 
-## 2. 팀원 설정 — 라우터를 쓰려면
+- `added_tokens.json`
+- `chat_template.jinja`
+- `config.json`
+- `merges.txt`
+- `special_tokens_map.json`
+- `tokenizer.json`
+- `tokenizer_config.json`
+- `vocab.json`
 
-```bash
-pip install -r crawler/requirements.txt        # torch · transformers · huggingface-hub 포함
-export HF_TOKEN=hf_...                          # read 권한이면 충분
-```
+가중치는 GitHub 단일 파일 제한을 넘으므로 HuggingFace에서 로컬 폴더로 내려받습니다.
 
-토큰 발급: <https://huggingface.co/settings/tokens> → **Read** 권한.
+## 현재 상태 확인
 
-**프라이빗 repo라 접근 권한이 따로 필요하다.** `us788` 개인 네임스페이스이므로, repo 설정에서 팀원 계정을 collaborator로 추가받아야 한다. 팀이 커지면 HF 조직(`4mation` 등)으로 옮기는 게 관리가 쉽다.
-
-확인:
-
-```bash
-cd crawler && python router_source.py
-```
-
-```
-매니페스트 : .../crawler/data/router_manifest.json
-로컬 경로  : .../router_moai_embedding_model  (있음)
-HF repo    : us788/moai_yebo_ft (프라이빗 — HF_TOKEN 필요)
-
-로컬 상태  : 사용 불가
-   - 없음: pytorch_model.bin
-
-resolve() -> us788/moai_yebo_ft
-```
-
-이 상태면 정상이다. 최초 검색 시 `transformers`가 2.38GB를 받아 `~/.cache/huggingface/hub`에 캐시하고, 이후에는 캐시에서 읽는다.
-
-### 라우터 없이 쓰기
-
-**아무것도 안 해도 된다.** `HF_TOKEN`이 없거나 네트워크가 막혀 있으면 `get_router()`가 실패를 한 번 보고하고 `classify_query_bf_keyword()`로 폴백한다. 검색은 정상 동작한다.
-
-```
-[router] 로드 실패(OSError) — 키워드 분류로 폴백: us788/moai_yebo_ft
-```
-
-다만 폴백 시 **키워드 분류 기권률이 28.6%(128/448)** 이고 그 구간은 부스트를 못 받는다. 수치를 리포트할 때는 라우터 사용 여부를 반드시 밝힐 것 — 같은 코드라도 `bf_source`가 다르면 다른 측정이다.
-
----
-
-## 3. 위치 해석 순서
-
-`crawler/router_source.py`의 `resolve()`가 정한다. 먼저 맞는 것에서 멈춘다.
-
-| 순위 | 조건 | 반환 |
-|---|---|---|
-| 1 | 환경변수 `ROUTER_PATH`가 설정됨 | 그 값 그대로 (검증 없음 — 실험 체크포인트용) |
-| 2 | 로컬 `router_moai_embedding_model/`이 매니페스트와 일치 | 로컬 절대경로 (**네트워크 안 탐**) |
-| 3 | `ROUTER_HF_REPO` 또는 매니페스트 `hf_repo` | HF repo id |
-| 4 | 위가 전부 실패 | `None` → 키워드 폴백 |
-
-2단계 무결성 검사는 기본이 **파일 존재 + 크기**만 본다. 부분 다운로드와 빈 파일을 잡는다. sha256 전수는 2.38GB를 매번 읽어야 해서 명시 요청할 때만 돈다:
+리포지토리 루트에서:
 
 ```bash
-python router_source.py --verify        # 느림
+python crawler/router_source.py
 ```
 
-`from_pretrained()`가 로컬 경로와 repo id를 모두 받기 때문에 이 구조가 성립한다. 호출부(`rag.py`)는 한 줄만 바뀌었고 `get_router()`의 폴백 로직은 그대로다.
+정상 예:
 
----
+```text
+로컬 상태  : 사용 가능
+resolve() -> /.../router_moai_embedding_model
+```
 
-## 4. 체크포인트 올리기 — 가진 사람이 1회
+2026-08-30 작업 폴더에서는 매니페스트의 9개 파일이 모두 일치하고 로컬 경로로 정상
+해석됐습니다.
+
+SHA-256 전수 검사는 2.38GB를 모두 읽으므로 필요할 때만 실행합니다.
 
 ```bash
-pip install "huggingface-hub>=0.23"
-export HF_TOKEN=hf_...                          # write 권한
-
-python scripts/upload_router_hf.py --dry-run    # 올릴 목록 확인
-python scripts/upload_router_hf.py              # 실행 (2.3GB, 회선에 따라 수십 분)
+python crawler/router_source.py --verify
 ```
 
-동작:
-
-1. 로컬 9개 파일을 매니페스트와 대조 — **불일치가 하나라도 있으면 올리지 않고 중단**한다. 깨진 걸 올리면 팀 전체가 깨진 걸 받는다
-2. 원격 목록을 읽어 **크기가 같은 파일은 건너뛴다**(멱등). 중간에 끊겨도 다시 돌리면 된다
-3. repo가 없으면 `private=True`로 만든다
-
-`--verify-sha`를 붙이면 업로드 전에 sha256 전수 검증을 한다. 처음 올릴 때 한 번은 권장한다.
-
-이 스크립트는 **로컬 파일을 읽기만 한다.** 삭제·수정하지 않는다.
-
----
-
-## 5. 매니페스트
-
-`crawler/data/router_manifest.json`에 9개 파일의 크기와 sha256이 들어 있다. 무결성 검사와 업로드가 모두 이 파일을 기준으로 한다.
-
-**체크포인트를 재학습하면 매니페스트도 함께 갱신해야 한다.** 안 그러면 `resolve()`가 새 로컬 파일을 "크기 불일치"로 보고 HF의 옛 가중치를 받아온다 — 조용히 다른 모델을 쓰게 되는 최악의 실패다.
+## 다운로드
 
 ```bash
-cd router_moai_embedding_model
-for f in *; do printf '%s %s ' "$f" "$(stat -f%z "$f")"; shasum -a 256 "$f" | cut -d' ' -f1; done
+python scripts/download_router_hf.py --dry-run
+python scripts/download_router_hf.py
+python scripts/download_router_hf.py --verify-sha
 ```
 
----
+프라이빗 저장소 접근이 필요하면 read 권한 `HF_TOKEN`을 환경에 설정합니다.
 
-## 6. 알려진 제약
+```bash
+export HF_TOKEN=hf_...
+python scripts/download_router_hf.py
+```
 
-**(a) pickle이다.** `pytorch_model.bin`은 `torch.load` 경로라 임의 코드 실행 위험이 있는 포맷이다. 프라이빗 repo라 외부 노출은 없지만, `safetensors`로 바꾸면 이 위험이 사라지고 크기도 절반(bf16 기준 ~1.2GB)이 된다. 바꾸려면 **448문항 예측 일치 검증을 거친 뒤** 매니페스트를 다시 만들 것.
+다운로드 스크립트는 크기가 맞는 파일을 건너뛰므로 중단 후 다시 실행할 수 있습니다.
 
-**(b) MSP를 OOS 판정에 쓰지 말 것.** 이 체크포인트는 held-out 450셋에서 MSP 최솟값 0.9991 · 중앙값 1.0000으로 체계적 과신 상태다. `QBF_MSP_MIN`을 0.00~0.99 어디에 둬도 걸러지는 게 한 건도 없고, 6업무 밖 질의도 1.000이 나온다. 소관밖 판정은 다른 신호(예: PRF 투표 비중과의 불일치)가 필요하다.
+essential 저장소에는 업로드 스크립트가 없습니다. 체크포인트를 재학습·배포하는 절차는 이
+저장소의 현재 운영 계약에 포함하지 않습니다.
 
-**(c) 파라미터가 라우터 유무에 종속된다.** `BF_BOOST`는 "분류가 거의 안 틀린다"는 전제 위에서만 안전하다. 라우터 착륙 후에는 `router` / `fallback` 두 구성에서 각각 재스윕해 두 세트를 병기할 것.
+## 경로 해석 순서
 
-**(d) `bf_map.jsonl`은 이미 커밋돼 있다.** 문서측 BF 조인(`rag.load_bf_map` / `Searcher._resolve_bf`)은 라우터 산출물인 `crawler/data/bf_map.jsonl`(108행)만 있으면 되고, 이 파일은 레포에 있다. **체크포인트가 필요한 건 새 질의를 분류할 때뿐이다.**
+`router_source.resolve()`는 다음 순서로 첫 유효 값을 반환합니다.
+
+| 순서 | 조건 | 결과 |
+|---:|---|---|
+| 1 | `ROUTER_PATH` 환경변수 존재 | 지정값 그대로 |
+| 2 | 로컬 9개 파일의 크기가 매니페스트와 일치 | 로컬 절대경로 |
+| 3 | `ROUTER_HF_REPO` 또는 매니페스트 `hf_repo` 존재 | HuggingFace repo id |
+| 4 | 전부 없음 | `None` |
+
+`ROUTER_PATH`는 검증 없이 우선하므로 다른 체크포인트 A/B에만 사용합니다.
+
+## 라우터가 없을 때
+
+`rag.get_router()`는 모델 로드 실패를 한 번 기록하고 키워드 분류
+`classify_query_bf_keyword()`로 폴백합니다. 검색 자체는 계속 동작합니다.
+
+다만 라우터 사용 여부에 따라 업무 boost 대상과 평가 결과가 달라집니다. 지표를 기록할 때
+`bf_source=router`인지 fallback인지 함께 남깁니다.
+
+## 사용 위치
+
+### 새 질의 업무 분류
+
+`rag.classify_query_bf()`가 질의를 6업무 중 하나로 예측하고 검색 soft boost에 사용합니다.
+
+### FAQ 문서 태깅
+
+```bash
+cd crawler
+python faq_bf_map.py --router ../router_moai_embedding_model
+```
+
+FAQ 질문 문장만 모델에 넣고 결과를 `data/bf_map.jsonl`에 저장합니다.
+
+## 매니페스트 변경
+
+체크포인트 파일을 바꾸면 `crawler/data/router_manifest.json`의 크기와 SHA-256을 반드시 함께
+갱신해야 합니다. 매니페스트가 옛 파일을 가리키면 새 로컬 파일을 거부하고 원격의 다른 모델로
+폴백할 수 있습니다.
+
+## 제약과 보안
+
+### pickle 포맷
+
+`pytorch_model.bin`은 pickle 기반 로드 경로를 사용할 수 있으므로 신뢰한 출처의 파일만
+사용합니다. safetensors로 전환하려면 450문항 분류 회귀와 매니페스트 갱신이 필요합니다.
+
+### MSP 과신
+
+held-out 질문셋에서 MSP 최솟값 0.9991, 중앙값 1.0 수준의 과신이 확인됐습니다. MSP를
+소관 밖/OOS 판정기로 사용하지 않습니다.
+
+### 메모리
+
+BGE-m3 임베딩 모델과 fp32 라우터를 함께 올리면 약 4.8GB를 사용합니다. 메모리 부족은
+`exit 139` 또는 페이징 파일 오류로 나타날 수 있습니다. 회귀 검증 없이 dtype을 임의로 바꾸지
+않습니다.

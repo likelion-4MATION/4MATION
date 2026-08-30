@@ -1,159 +1,132 @@
-<div align="center">
-
 # 4MATION
 
-**LikeLion AI/NLP 5기 · 클라비 기업 연계 프로젝트**
+예금보험공사(KDIC) 공개 웹사이트의 정보를 수집·정리하고, 6개 업무 범위에서 답하는
+RAG 챗봇과 운영용 관리자 콘솔을 제공하는 PoC입니다.
 
-예금보험공사(KDIC) 데이터 관리체계 고도화 및 생성형 AI 서비스 구축
+> 기준: `main` · essential 저장소 재구성본 · 2026-08-30 현행화
 
-</div>
+## 제공 기능
 
----
+| 영역 | 현재 구현 |
+|---|---|
+| 데이터 파이프라인 | 화이트리스트 38개 문서 수집, 본문 파싱, 첨부 연결, 청킹, FAISS·BM25 인덱스 생성 |
+| 검색 | `dragonkue/BGE-m3-ko` 1024차원 임베딩 + BM25 + RRF + 6업무 soft boost |
+| 챗봇 | HCX/DeepSeek 답변 생성, 출처 표시, 절 단위 처리, Q-Form 되묻기·슬롯 기억 |
+| OOS | 오류 신고, 검증된 타기관 안내, 일상 대화, 원거리 소관 밖, 유선 상담 안내 |
+| 사용자 웹 | FastAPI API + 빌드 과정 없는 HTML/CSS/JavaScript UI |
+| 관리자 | 검색·생성·Q-Form 설정, 재빌드 작업, 첨부 관리, OOS 안내처와 오류 신고함 |
 
-## 📌 프로젝트 소개
-
-예금보험공사 공개 웹사이트(kdic.or.kr, fins.kdic.or.kr)에 산재한 데이터를 **중앙화**하고, 기존 Rule 기반 챗봇을 **RAG 기반 자연어 AI 챗봇**으로 개편하는 PoC 프로젝트.
-
-- **문제**: 웹사이트 데이터가 산재해 있고, 기존 대외 챗봇은 Rule 기반이라 자연어 질의 대응 불가
-- **목표**: 데이터 통합 관리 체계 + 6개 업무 질의에 답하는 RAG 챗봇 + 운영 모니터링 대시보드
-- **성격**: 기술 타당성 검증(PoC) → 향후 사업화 기반 마련
-
-## 🧩 프로젝트 구성 (3단계)
-
-| 단계 | 이름 | 내용 | 상태 |
-|------|------|------|------|
-| 실전 1 | **데이터 파이프라인** | 크롤링 → 본문 파싱 → 메타데이터 태깅 → 청킹 → 벡터DB 적재 | ✅ v0 완료 — [`crawler/`](./crawler/) |
-| 실전 2 | **RAG 챗봇** | 6개 업무 질의응답, 출처 표시, Qform, 절별 BF/OOS 처리 | ✅ PoC 통합 |
-| 종합 | **관리자 기능** | 데이터 운영, RAG 파라미터, OOS 안내처, 오류 신고함 | ✅ PoC 통합 |
-
-## 🏗 서비스 아키텍처
-
-```mermaid
-flowchart LR
-    subgraph P1["실전 1 — 데이터 파이프라인"]
-        A["예보 공개 웹사이트"] --> B["크롤링·본문 파싱"]
-        B --> C["메타데이터 태깅·청킹"]
-    end
-    C --> D[("벡터DB + 원문")]
-    subgraph P2["실전 2 — RAG 챗봇"]
-        E["검색 파이프라인"] --> F["LLM 답변 생성·출처 표시"]
-    end
-    D --> E
-    F --> U["사용자"]
-    subgraph P3["종합 — 관리자"]
-        M["관리자 UI"]
-    end
-    M -. "데이터 CRUD·재수집 트리거" .-> B
-    M -. "RAG 파라미터 조정·테스트" .-> E
-```
-
-## 📦 기대 산출물
-
-1. 6개 업무 검색 범위 정의서 + 수집 코퍼스 (계층 메타데이터 포함)
-2. RAG 자연어 챗봇 (출처 표시·민원 처리 안내)
-3. 관리자 트리거 기반 수집·전처리·적재 파이프라인
-4. RAG 파라미터 테스트 관리자 UI
-5. 평가 테스트셋 + 성능 평가 리포트
-
-## 👥 팀원
-
-| 이름 | 역할 | GitHub |
-|------|------|--------|
-| 김경은 | 팀장 / TBD | [@Gyeong-Eun](https://github.com/Gyeong-Eun) |
-| 박유상 | TBD | [@us788](https://github.com/us788) |
-| 양현욱 | TBD | [@ukkhnn](https://github.com/ukkhnn) |
-| 문규남 | TBD | [@mungn0603-code](https://github.com/mungn0603-code) |
-
-## 🛠 기술 스택
-
-| 분류 | 현재 PoC | 비고 |
-|------|------|------|
-| Language | Python 3.11+ | — |
-| 수집/전처리 | requests · BeautifulSoup(lxml) — 규칙 기반, LLM 미사용 | Playwright (동적 페이지 필요 시) |
-| 임베딩 | `dragonkue/BGE-m3-ko` (로컬, 1024d) | 최초 실행 시 HF 캐시 다운로드 |
-| 검색 | FAISS + BM25(kiwipiepy) + RRF + 6-BF soft boost | `crawler/rag.py` 정본 |
-| LLM | HCX-003 / DeepSeek V4 Flash 실험 분기 | P0에서 DeepSeek 우세 신호, 운영 기본값 미변경 |
-| UI | 정적 HTML/CSS/JS 챗봇 + HTML/JS 관리자 | 빌드 도구 없는 로컬 PoC |
-| Backend | FastAPI 사용자 API + FastAPI/SQLite 관리자 | 기존 Q-Form·RAG 재사용 |
-| Infra / 협업 | GitHub, Notion, Discord | — |
-
-### 답변 생성 모델 비교 상태
-
-2026-08-26 P0 파일럿(40문항, 같은 검색 컨텍스트, 모델당 3회 생성)에서 DeepSeek V4 Flash가
-HCX-003보다 우세한 신호를 보였다. Solar Pro 4 블라인드 심사 F1 기준 DeepSeek 16승,
-HCX 2승, 동률 22건이며 F2도 같은 총계였다. 할루시네이션 판정과 지연시간도 DeepSeek 쪽이
-우세했다.
-
-이 결과는 **실험 브랜치의 P0 방향성**이며 운영 기본값 변경 결정이 아니다. 최종 판단은 P0와
-겹치지 않는 P1 150문항에서 재검증한다. 수치·한계·심사 감사 기록은
-[`docs/records/HCX_DeepSeek_P0_결과_20260826.md`](./docs/records/HCX_DeepSeek_P0_결과_20260826.md),
-실행 절차는 [`docs/current/OPENCODE_LLM_JUDGE.md`](./docs/current/OPENCODE_LLM_JUDGE.md)를 본다.
-
-## 📂 프로젝트 구조
+## 현재 저장소 구조
 
 ```text
-4MATION/
-├── crawler/        # 실전 1: 데이터 파이프라인 (수집→파싱→청킹→인덱스→평가)
-│   ├── README.md   #   실행 순서·산출물 안내
-│   ├── DECISIONS.md · HOLES.md   # 판단 로그 · 이슈/팀 이관
-│   └── data/       #   chunks.jsonl · 인덱스 · 평가 리포트
-├── web/            # FastAPI 사용자 API · 정적 HTML/CSS/JS 챗봇 UI
-├── chatbot/        # Qform · 절별 BF/OOS 오케스트레이션 · 답변 생성 백엔드
-├── admin/          # FastAPI 관리자 콘솔 · OOS 안내처 · 오류 신고 저장소
-├── docs/           # 문서 — 성격별 4계층 + 인덱스 2종
-│   ├── README.md            #   문서 지도
-│   ├── 프로젝트_전체흐름.md   #   전체 그림 · 용어·지표 해설 (여기서 시작)
-│   ├── INDEX_시간축.md       #   언제 무슨 일이 있었나
-│   ├── INDEX_사건축.md       #   무슨 문제를 어떻게 풀었나
-│   ├── current/    #   정본 — 지금 이대로 돌아간다
-│   ├── records/    #   기록 — 측정·회의록·인계·7월 진행도
-│   ├── plans/      #   계획 — 실행 여부를 배지에 명시
-│   └── superseded/ #   폐기·경위
-├── logs/           # 데일리 스탠드업
-└── CONTRIBUTING.md # 협업 규칙
+4MATIONESS/
+├── README.md                 프로젝트 개요와 문서 지도
+├── SETUP.md                  새 환경 설치와 첫 실행
+├── .env.example              LLM·라우터 환경변수 예시
+├── crawler/                  수집·파싱·청킹·검색·평가
+│   ├── README.md
+│   ├── data/                 추적 데이터 + 로컬 재생성 산출물
+│   └── tests/test_guards.py
+├── chatbot/                  답변 생성·Q-Form·OOS 오케스트레이션
+├── web/                      사용자 FastAPI 서버와 정적 UI
+├── admin/                    관리자 FastAPI 서버와 정적 UI
+├── tests/                    OOS·웹 API 회귀 테스트
+├── scripts/                  라우터 체크포인트 다운로드
+├── router_moai_embedding_model/
+│   └── ...                   설정·토크나이저는 Git, 2.38GB 가중치는 로컬 전용
+└── docs/current/             현행 설계·운영 문서
 ```
 
-## 🚀 실행 방법
+과거 저장소에 있던 `records/`, `plans/`, `superseded/`, `archive/`, `exp/`, `logs/`는
+essential 재구성본에 포함하지 않습니다. 현재 문서는 이 저장소에 실제로 남은 코드와 데이터만
+정본으로 취급합니다.
 
-현재 통합 버전의 설치·데이터 빌드·관리자·챗봇·테스트 명령은
-[`docs/current/RUNBOOK.md`](./docs/current/RUNBOOK.md)를 정본으로 사용합니다. 이미 인덱스와 `.env`가 준비된
-개발 환경에서는 다음 두 프로세스를 실행합니다.
+## 빠른 실행
+
+처음 설치한다면 [SETUP.md](./SETUP.md)를 먼저 봅니다. 의존성·`.env`·인덱스가 준비돼 있다면
+리포지토리 루트에서 다음 두 프로세스를 실행합니다.
 
 ```bash
-# 터미널 1
-source .venv/bin/activate      # PowerShell: .venv\Scripts\Activate.ps1
-cd admin && python -m uvicorn main:app --host 127.0.0.1 --port 8600
+# 터미널 1 — 관리자
+source .venv/bin/activate
+cd admin
+python -m uvicorn main:app --host 127.0.0.1 --port 8600
+```
 
-# 터미널 2 — 리포지토리 루트
-source .venv/bin/activate      # PowerShell: .venv\Scripts\Activate.ps1
+```bash
+# 터미널 2 — 사용자 챗봇(리포지토리 루트)
+source .venv/bin/activate
 python -m uvicorn web.main:app --host 127.0.0.1 --port 8501
 ```
 
-새 로컬의 전체 설치는 [`SETUP.md`](./SETUP.md), OOS 운영 절차는
-[`docs/current/OOS_구현_운영가이드.md`](./docs/current/OOS_구현_운영가이드.md)를 참고합니다.
+- 사용자 화면: <http://127.0.0.1:8501>
+- 사용자 API 문서: <http://127.0.0.1:8501/api/docs>
+- 관리자 화면: <http://127.0.0.1:8600>
 
-## 📖 문서 읽는 순서
+실행·재빌드·평가 명령은 [RUNBOOK](./docs/current/RUNBOOK.md)을 정본으로 사용합니다.
 
-처음 보는 사람은 [`docs/프로젝트_전체흐름.md`](./docs/프로젝트_전체흐름.md) 하나로
-전체를 잡을 수 있습니다 — 무엇을 만들었고, 무슨 문제를 어떻게 풀었고, 나오는 숫자가
-무슨 뜻인지까지 담았습니다(**용어·지표 해설 포함, 사전 지식 불필요**).
+## 데이터와 모델 기준선
 
-| 알고 싶은 것 | 볼 곳 |
+Git에 포함된 현재 데이터는 다음과 같습니다.
+
+| 자산 | 현재 값 |
+|---|---:|
+| 수집 매니페스트 | 38개 문서 |
+| `crawler/data/chunks.jsonl` | 181청크 · 38문서 · 14필드 |
+| 자연어 질문셋 | 450문항 |
+| 검색 GT | 450문항 · 앵커 보유 430문항 |
+| FAQ BF 맵 | 108행 · 저신뢰 `null` 3행 |
+| 임베딩 | `dragonkue/BGE-m3-ko` · 1024차원 |
+| 라우터 | Qwen3 계열 6분류 · fp32 2.38GB |
+
+`crawler/data/index/`, `raw/`, `meta/`, `parsed/`, `files/`는 로컬 재생성 산출물이라 Git에
+포함되지 않습니다. 로컬 인덱스의 청크 수는 반드시 `chunks.jsonl`과 맞아야 합니다.
+
+```bash
+wc -l crawler/data/chunks.jsonl crawler/data/index/chunk_meta.jsonl
+```
+
+수가 다르면 서로 다른 빌드 산출물이 섞인 상태입니다. [RUNBOOK의 인덱스 재빌드 절차](./docs/current/RUNBOOK.md#3-데이터와-인덱스)를 따릅니다.
+
+## 검증
+
+```bash
+python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py -q
+node --check web/static/app.js
+python chatbot/verify_qform_e2e.py
+python chatbot/verify_qform_integration.py
+python chatbot/verify_qform_multiturn.py
+```
+
+2026-08-30 기준 Python 테스트는 21개가 통과합니다. Q-Form 검증 스크립트는 성공 시 별도
+출력 없이 종료될 수 있습니다.
+
+## 문서 지도
+
+| 알고 싶은 내용 | 문서 |
 |---|---|
-| 전체 그림 · 용어 해설 | [`docs/프로젝트_전체흐름.md`](./docs/프로젝트_전체흐름.md) |
-| 어디에 무슨 문서가 있나 | [`docs/README.md`](./docs/README.md) |
-| 날짜순 진행 경과 | [`docs/INDEX_시간축.md`](./docs/INDEX_시간축.md) |
-| 사건별 문제 → 해결 | [`docs/INDEX_사건축.md`](./docs/INDEX_사건축.md) |
-| 실행 명령 | [`docs/current/RUNBOOK.md`](./docs/current/RUNBOOK.md) |
-| 코드가 왜 이 모양인가 | [`DECISIONS.md`](./DECISIONS.md) |
+| 새 환경 설치 | [SETUP.md](./SETUP.md) |
+| 실행·재빌드·평가·테스트 | [docs/current/RUNBOOK.md](./docs/current/RUNBOOK.md) |
+| 크롤러 입력·출력 | [crawler/README.md](./crawler/README.md) |
+| 사용자 웹 API | [web/README.md](./web/README.md) |
+| 관리자 콘솔 | [admin/README.md](./admin/README.md) |
+| Q-Form 설계 | [QFORM_ARCH_설계스펙.md](./docs/current/QFORM_ARCH_설계스펙.md) |
+| FAQ 업무 태깅 | [faq_routing_bf.md](./docs/current/faq_routing_bf.md) |
+| 라우터 체크포인트 | [router_checkpoint.md](./docs/current/router_checkpoint.md) |
+| OOS 운영 | [OOS_구현_운영가이드.md](./docs/current/OOS_구현_운영가이드.md) |
+| 관리자 상세 사양 | [관리자콘솔_사양서.md](./docs/current/관리자콘솔_사양서.md) |
 
-**문서 맨 위 배지를 먼저 보세요.** `정본`(current) · `기록`(records) ·
-`계획`(plans — 현행과 다를 수 있음) · `폐기·경위`(superseded) 넷을 구분합니다.
+## 기술 스택
 
-## 🤝 협업 규칙
+- Python 3.11+
+- FastAPI, Uvicorn, SQLite
+- requests, BeautifulSoup, lxml
+- sentence-transformers, PyTorch, Transformers
+- FAISS, BM25(kiwipiepy), RRF
+- 정적 HTML/CSS/JavaScript
 
-브랜치 전략, 커밋 컨벤션, PR 규칙은 [CONTRIBUTING.md](./CONTRIBUTING.md) 참고.
+## 프로젝트 정보
 
-## 📅 프로젝트 기간
-
-`2026.07.10 ~ 2026.09.02`
+- LikeLion AI/NLP 5기 · 클라비 기업 연계 프로젝트
+- 기간: 2026-07-10 ~ 2026-09-02
+- 성격: 기술 타당성 검증 PoC
