@@ -27,6 +27,7 @@ import argparse
 import collections
 import hashlib
 import json
+import os
 import pathlib
 import sys
 import unicodedata
@@ -99,8 +100,14 @@ class Router:
     """로컬 시퀀스 분류 체크포인트 래퍼. id2label 검증 후에만 추론한다."""
 
     def __init__(self, ckpt: str, batch_size: int = 16):
+        os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
         import torch
         from transformers import AutoModelForSequenceClassification, AutoTokenizer
+
+        # 라우터만 단독으로 쓰는 Q-form 경로는 rag.get_model()의 스레드 제한을
+        # 거치지 않는다. 2.38GB Qwen 체크포인트도 같은 보수적 기본값을 직접 적용한다.
+        threads = max(1, int(os.environ.get("RAG_TORCH_THREADS", "1")))
+        torch.set_num_threads(threads)
 
         self.torch = torch
         self.name = ckpt
