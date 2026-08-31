@@ -93,6 +93,10 @@ PARAMS = [
     _p("PANEL_EXPIRED", "만료된 항목 표시", "enum", "gray", "normal", "runtime",
        "chatbot/qform_config.py", "회색으로 남김(권장) / 화면에서 지움.",
        values=["gray", "drop"], tab=3),
+    _p("QFORM_RETRIEVAL_MODE", "Q-Form 검색 반영 방식", "enum", "field_value",
+       "normal", "runtime", "chatbot/qform_config.py",
+       "기존 field:value 질의 확장, 청크 메타데이터 가산, 병행 또는 미반영을 선택합니다.",
+       values=["off", "field_value", "metadata_soft", "field_value_soft"], tab=3),
 
     # ── ④ 최신성 가드 ──────────────────────────────────────────────
     _p("guardsEnabled", "가드 기능 사용", "bool", True, "normal", "runtime",
@@ -108,6 +112,9 @@ PARAMS = [
        "crawler/rag.py", "같은 업무 문서 가산점.", min=0.0, max=0.20, step=0.01, tab=6),
     _p("FACET_BOOST", "FACET_BOOST", "float", 0.05, "advanced", "runtime",
        "crawler/rag.py", "질문 유형(구비서류·절차 등) 일치 가산점.", min=0.0, max=0.30, step=0.01, tab=6),
+    _p("QFORM_META_BOOST", "QFORM_META_BOOST", "float", 0.05, "advanced", "runtime",
+       "crawler/rag.py", "사용자 Q-Form 슬롯과 청크 자동 메타데이터가 모두 일치할 때의 최대 가산점. 아직 전용 평가 전인 실험값입니다.",
+       min=0.0, max=0.20, step=0.01, tab=6),
     _p("BF_DOC_CAP", "BF_DOC_CAP", "int", 5, "advanced", "runtime",
        "crawler/rag.py", "한 문서에서 뽑을 최대 청크 수.", min=1, max=10, tab=6),
     _p("BF_MODE", "BF_MODE", "enum", "soft", "advanced", "runtime",
@@ -241,6 +248,7 @@ def resolve(override: dict | None = None) -> dict:
 
 
 def is_custom_search(override: dict) -> bool:
-    """고급 탭에서 검색 5축을 직접 건드렸는가 — '검증된 프리셋 아님' 배지 조건."""
+    """고급 탭에서 검색 가중치를 직접 건드렸는가 — '검증된 프리셋 아님' 배지 조건."""
     return any(k in (override or {}) for k in
-               ("RRF_ALPHA", "RRF_K", "BF_BOOST", "FACET_BOOST", "BF_DOC_CAP"))
+               ("RRF_ALPHA", "RRF_K", "BF_BOOST", "FACET_BOOST", "QFORM_META_BOOST",
+                "BF_DOC_CAP"))

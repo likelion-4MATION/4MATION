@@ -31,6 +31,7 @@ _EMPTY = {"override": {}, "pending": {}, "history": [], "measured": {}, "dirty":
 # 실측 이력에 함께 남기는 설정 스냅샷 — 콜 수·응답시간·비용은 실측이 아니라 설정에서
 # 계산되는 값이라, 그때 무슨 설정이었는지를 같이 적어 둬야 나중에 다시 계산할 수 있다.
 OPS_KEYS = ("llmProvider", "askMode", "QFORM_SCOPE", "MAX_ASK_TURNS", "maxTokens", "k",
+            "QFORM_RETRIEVAL_MODE", "QFORM_META_BOOST",
             "answerChecksEnabled", "answerGateMode", "answerGateMaxRetries",
             "CHUNK_SIZE", "OVERLAP", "TABLE_KEEP")
 
@@ -233,7 +234,7 @@ def apply_runtime() -> list[str]:
 
     try:                                        # 검색
         import rag
-        for key in ("RRF_ALPHA", "RRF_K", "BF_BOOST", "FACET_BOOST",
+        for key in ("RRF_ALPHA", "RRF_K", "BF_BOOST", "FACET_BOOST", "QFORM_META_BOOST",
                     "BF_DOC_CAP", "BF_MODE", "QBF_MSP_MIN"):
             if hasattr(rag, key):
                 setattr(rag, key, cfg[key])
@@ -264,7 +265,8 @@ def apply_runtime() -> list[str]:
     try:                                        # 큐폼 — 이미 SPEC/resolve 패턴이 있다
         import qform_config
         for key in ("SLOT_CARRYOVER", "CARRYOVER_TTL", "CARRYOVER_SCOPE",
-                    "MAX_ASK_TURNS", "QFORM_SCOPE", "MAX_QUEUE", "PANEL_EXPIRED"):
+                    "MAX_ASK_TURNS", "QFORM_SCOPE", "MAX_QUEUE", "PANEL_EXPIRED",
+                    "QFORM_RETRIEVAL_MODE"):
             if hasattr(qform_config, key):
                 setattr(qform_config, key, cfg[key])
                 touched.append(f"qform_config.{key}")
@@ -278,7 +280,8 @@ def qform_override() -> dict:
     """`qform_config.resolve()` 에 그대로 넘길 수 있는 dict."""
     cfg = current()
     return {k: cfg[k] for k in ("SLOT_CARRYOVER", "CARRYOVER_TTL", "CARRYOVER_SCOPE",
-                                "MAX_ASK_TURNS", "QFORM_SCOPE", "MAX_QUEUE", "PANEL_EXPIRED")}
+                                "MAX_ASK_TURNS", "QFORM_SCOPE", "MAX_QUEUE", "PANEL_EXPIRED",
+                                "QFORM_RETRIEVAL_MODE")}
 
 
 def chunk_env() -> dict:

@@ -29,6 +29,12 @@ const ENUM_LABEL = {
   QFORM_SCOPE: {msdr: "착오송금만", "msdr+dpin": "착오송금 + 예금보험금"},
   CARRYOVER_SCOPE: {bf_match: "기억 지움", global: "그대로 유지", off: "기억 안 함"},
   PANEL_EXPIRED: {gray: "회색으로 남김", drop: "화면에서 지움"},
+  QFORM_RETRIEVAL_MODE: {
+    off: "검색에 반영 안 함",
+    field_value: "기존 field:value",
+    metadata_soft: "청크 메타데이터 가산",
+    field_value_soft: "두 방식 함께 사용"
+  },
   answerGateMode: {warn: "경고만", regenerate: "자동 재생성", block: "답변 차단"},
   llmProvider: {hcx: "HyperCLOVA X", deepseek: "DeepSeek", upstage: "Upstage Solar"},
   BF_MODE: {soft: "가산점(soft)", hard: "타 업무 제외(hard)"},
