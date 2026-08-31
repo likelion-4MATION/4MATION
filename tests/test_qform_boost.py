@@ -5,12 +5,15 @@ import sys
 
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-sys.path[:0] = [str(ROOT / "chatbot"), str(ROOT / "crawler")]
+sys.path[:0] = [str(ROOT / "chatbot"), str(ROOT / "crawler"), str(ROOT / "admin")]
 
 import chain
 import orchestrator
 import qform_flow
+import qform_metadata
 import qform_state
+import rag
+import registry
 from web.sessions import SessionRecord
 
 
@@ -74,12 +77,83 @@ def test_qform_flow_off_path_and_legacy_callback_are_unchanged():
     assert event["boosted"] is None
 
 
+def test_qform_flow_metadata_mode_keeps_original_query_and_forwards_mode():
+    received = {}
+
+    def answer(query, slots, *, retrieval_query=None, qform_retrieval_mode=None):
+        received.update(query=query, slots=slots, retrieval_query=retrieval_query,
+                        mode=qform_retrieval_mode)
+        return {"text": "stub"}
+
+    state = qform_flow.new_state()
+    state["base_q"] = ORIGINAL
+    state["qform"] = dict(SLOTS)
+    event = qform_flow._finalize(
+        state, boost=True, answer_fn=answer,
+        config={"QFORM_RETRIEVAL_MODE": "metadata_soft"},
+    )
+
+    assert received == {
+        "query": ORIGINAL, "slots": SLOTS, "retrieval_query": ORIGINAL,
+        "mode": "metadata_soft",
+    }
+    assert event["search_q"] == ORIGINAL
+    assert event["boosted"] is None
+    assert event["qform_retrieval_mode"] == "metadata_soft"
+
+
+def test_crawled_chunk_metadata_extracts_only_values_allowed_for_business():
+    meta = qform_metadata.tag(
+        "미성년자 자녀를 대신해 대리인이 착오송금 반환 신청 서류를 방문 제출합니다.",
+        "착오송금 반환 신청",
+    )
+
+    assert "반환신청" in meta["sub_task"]
+    assert meta["qualification"] == ["대리인"]
+    assert meta["subject"] == ["미성년자", "대리인"]
+    assert meta["method"] == ["방문"]
+    assert qform_metadata.tag("미성년자 대리 신청", "채무조정 안내") == {}
+
+
+def test_qform_metadata_soft_boost_scales_by_matching_field_ratio():
+    searcher = object.__new__(rag.Searcher)
+    searcher.chunks = [
+        {"qform_meta": {"sub_task": ["반환신청"], "qualification": ["대리인"],
+                         "subject": ["미성년자"]}},
+        {"qform_meta": {"sub_task": ["반환신청"]}},
+        {"qform_meta": {}},
+    ]
+    scores = {0: 0.5, 1: 0.5, 2: 0.5}
+    applied = searcher._apply_qform_meta_boost(
+        scores,
+        {"sub_task": "반환신청", "qualification": "대리인", "subject": "미성년자"},
+        boost=0.09,
+    )
+
+    assert scores[0] == 0.59
+    assert scores[1] == 0.53
+    assert scores[2] == 0.5
+    assert applied[0]["matches"] == ["sub_task", "qualification", "subject"]
+
+
+def test_admin_exposes_qform_retrieval_mode_and_metadata_weight():
+    assert registry.DEFAULTS["QFORM_RETRIEVAL_MODE"] == "field_value"
+    assert registry.DEFAULTS["QFORM_META_BOOST"] == 0.05
+    assert not registry.validate({"QFORM_RETRIEVAL_MODE": "metadata_soft",
+                                  "QFORM_META_BOOST": 0.08})
+    assert registry.validate({"QFORM_RETRIEVAL_MODE": "unknown"})
+    assert registry.validate({"QFORM_META_BOOST": 1.0})
+
+
 class RecordingSearcher:
     def __init__(self):
         self.calls = []
 
-    def search(self, query, *, k, mode, bf_override=None):
-        self.calls.append({"query": query, "k": k, "mode": mode, "bf": bf_override})
+    def search(self, query, *, k, mode, bf_override=None, qform=None):
+        call = {"query": query, "k": k, "mode": mode, "bf": bf_override}
+        if qform is not None:
+            call["qform"] = qform
+        self.calls.append(call)
         if mode == "dense":
             return [{"_score": 0.75}]
         return [{
@@ -131,17 +205,42 @@ def test_chain_searches_expanded_query_but_prompts_with_original_query():
     assert result["_meta"]["retrieval_boosted"] is True
 
 
+def test_chain_passes_slots_to_searcher_only_for_metadata_mode():
+    searcher = RecordingSearcher()
+    original_searcher, original_gate = chain._searcher, chain._generate_with_gate
+    chain._searcher = searcher
+    chain._generate_with_gate = lambda *_args, **_kwargs: (
+        "안내입니다. [출처1]",
+        {"provider": "stub", "model": "stub", "latency_ms": 0, "error": None},
+        {"ok": True, "flags": [], "gate": {"action": "passed"}},
+    )
+    try:
+        result = chain.answer_in_scope(
+            ORIGINAL, qform=SLOTS, bf="착오송금 반환 신청",
+            qform_retrieval_mode="metadata_soft",
+        )
+    finally:
+        chain._searcher, chain._generate_with_gate = original_searcher, original_gate
+
+    assert searcher.calls[0]["query"] == ORIGINAL
+    assert searcher.calls[0]["qform"] == SLOTS
+    assert result["_meta"]["qform_retrieval_mode"] == "metadata_soft"
+    assert result["_meta"]["qform_metadata_applied"] is True
+
+
 def test_orchestrator_forwards_expanded_query_to_scoped_chain():
     query = "착오송금 반환 신청을 철회하고 싶어요"
     received = {}
 
-    def answer_in_scope(original_query, k=None, qform=None, bf=None, *, retrieval_query=None):
+    def answer_in_scope(original_query, k=None, qform=None, bf=None, *, retrieval_query=None,
+                        qform_retrieval_mode="off"):
         received.update(
             original_query=original_query,
             k=k,
             qform=qform,
             bf=bf,
             retrieval_query=retrieval_query,
+            qform_retrieval_mode=qform_retrieval_mode,
         )
         return {
             "text": "stub", "sources": [], "confidence": 0.0, "route": "rag",
@@ -170,6 +269,7 @@ def test_orchestrator_forwards_expanded_query_to_scoped_chain():
     assert received["original_query"] == query
     assert received["bf"] == "착오송금 반환 신청"
     assert received["retrieval_query"] == event["search_q"]
+    assert received["qform_retrieval_mode"] == "field_value"
     assert event["search_q"].startswith(f"{query}\n\n[QFORM]\n")
     assert "sub_task: 신청철회" in event["search_q"]
 

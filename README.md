@@ -10,7 +10,7 @@ RAG 챗봇과 운영용 관리자 콘솔을 제공하는 PoC입니다.
 | 영역 | 현재 구현 |
 |---|---|
 | 데이터 파이프라인 | 화이트리스트 38개 문서 수집, 본문 파싱, 첨부 연결, 청킹, FAISS·BM25 인덱스 생성 |
-| 검색 | `dragonkue/BGE-m3-ko` 1024차원 임베딩 + BM25 + RRF + 6업무 soft boost |
+| 검색 | `dragonkue/BGE-m3-ko` 1024차원 임베딩 + BM25 + RRF + 6업무/Q-Form 메타 soft boost |
 | 챗봇 | HCX/DeepSeek/Upstage 답변 생성, 출처 표시, 동적 답변 검증 게이트, 절 단위 처리, Q-Form 되묻기·슬롯 기억·검색 조건 반영 |
 | OOS | 오류 신고, 검증된 타기관 안내, 일상 대화, 원거리 소관 밖, 유선 상담 안내 |
 | 사용자 웹 | FastAPI API + 빌드 과정 없는 HTML/CSS/JavaScript UI |
@@ -72,7 +72,7 @@ Git에 포함된 현재 데이터는 다음과 같습니다.
 | 자산 | 현재 값 |
 |---|---:|
 | 수집 매니페스트 | 38개 문서 |
-| `crawler/data/chunks.jsonl` | 181청크 · 38문서 · 14필드 |
+| `crawler/data/chunks.jsonl` | 181청크 · 38문서 · 15필드 |
 | 자연어 질문셋 | 450문항 |
 | 검색 GT | 450문항 · 앵커 보유 430문항 |
 | FAQ BF 맵 | 108행 · 저신뢰 `null` 3행 |

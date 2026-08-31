@@ -11,12 +11,12 @@
 |---|---:|
 | 매니페스트 | 38개 문서 |
 | 저장된 수집 결과 | 38개 성공 · robots 차단 0 |
-| 추적 코퍼스 | 181청크 · 38문서 · 14필드 |
+| 추적 코퍼스 | 181청크 · 38문서 · 15필드 (`qform_meta` 포함) |
 | 자연어 질문셋 | 450문항 |
 | 검색 GT | 450문항 · 직접 앵커 430문항 |
 | FAQ BF 맵 | 108행 · `null` 3행 |
 | 임베딩 | `dragonkue/BGE-m3-ko` · 1024차원 |
-| 검색 | FAISS IndexFlatIP + BM25(kiwipiepy) + RRF + BF soft boost |
+| 검색 | FAISS IndexFlatIP + BM25(kiwipiepy) + RRF + BF/Q-Form metadata soft boost |
 
 ## 빠른 시작
 
