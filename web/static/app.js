@@ -144,11 +144,14 @@ function renderHistory() {
   const lastAnswer = [...history].reverse().find((turn) => turn.role === "answer");
   for (const turn of history) {
     if (turn.role === "user") {
-      root.append(element("section", { className: "turn user" }, [element("h2", { text: turn.text })]));
+      const section = element("section", { className: "turn user", attrs: { "aria-label": "사용자 메시지" } });
+      section.append(element("div", { className: "message-bubble", text: turn.text }));
+      root.append(section);
       continue;
     }
     if (turn.role === "ask") {
-      const box = element("section", { className: "turn assistant ask-box" });
+      const section = element("section", { className: "turn assistant", attrs: { "aria-label": "챗봇 메시지" } });
+      const box = element("div", { className: "message-bubble ask-box" });
       box.append(element("p", { text: turn.prompt }));
       const row = element("div", { className: "button-row" });
       const options = ui.snapshot.state.pending?.options || turn.options || [];
@@ -162,13 +165,15 @@ function renderHistory() {
         );
       }
       box.append(row);
-      root.append(box);
+      section.append(box);
+      root.append(section);
       continue;
     }
 
-    const section = element("section", { className: "turn assistant" });
-    if (turn.text === null) section.append(element("div", { className: "answer-error", text: turn.error_text }));
-    else section.append(element("div", { className: "answer-text", text: turn.text || "" }));
+    const section = element("section", { className: "turn assistant", attrs: { "aria-label": "챗봇 메시지" } });
+    const bubble = element("div", { className: "message-bubble" });
+    if (turn.text === null) bubble.append(element("div", { className: "answer-error", text: turn.error_text }));
+    else bubble.append(element("div", { className: "answer-text", text: turn.text || "" }));
 
     const filled = Object.entries(turn.slots || {}).filter(([, value]) => value);
     if (filled.length) {
@@ -181,13 +186,13 @@ function renderHistory() {
         }
         slots.append(chip);
       }
-      section.append(slots);
+      bubble.append(slots);
     }
 
     const meta = [turn.route_label];
     if (typeof turn.confidence === "number") meta.push(`관련 문서 유사도 ${turn.confidence.toFixed(2)}`);
     if (turn.latency_ms) meta.push(`${turn.latency_ms}ms`);
-    section.append(element("div", { className: "answer-meta", text: meta.filter(Boolean).join(" · ") }));
+    bubble.append(element("div", { className: "answer-meta", text: meta.filter(Boolean).join(" · ") }));
 
     if (turn.attachments?.length) {
       const details = element("details");
@@ -202,7 +207,7 @@ function renderHistory() {
         } else row.textContent = attachment.label;
         details.append(row);
       }
-      section.append(details);
+      bubble.append(details);
     }
 
     if (turn.referral) {
@@ -210,7 +215,7 @@ function renderHistory() {
       referral.append(element("strong", { text: `안내처 · ${turn.referral.org || ""}` }));
       if (safeExternalUrl(turn.referral.url)) referral.append(element("a", { text: "공식 안내 페이지", attrs: { href: safeExternalUrl(turn.referral.url), target: "_blank", rel: "noopener" } }));
       if (turn.referral.phone) referral.append(element("p", { text: `전화: ${turn.referral.phone}` }));
-      section.append(referral);
+      bubble.append(referral);
     }
 
     if (turn.followups?.length && lastAnswer?.message_id === turn.message_id) {
@@ -218,8 +223,9 @@ function renderHistory() {
       for (const item of turn.followups) {
         row.append(button(`${slotLabel(item.field)} · ${item.value}`, () => performAction({ type: "edit", field: item.field, value: item.value })));
       }
-      section.append(row);
+      bubble.append(row);
     }
+    section.append(bubble);
     root.append(section);
   }
 }
