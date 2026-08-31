@@ -6,9 +6,9 @@
 - FAQ 페이지(page_type/title에 'FAQ')는 질문-답변 1쌍 = 1청크 (크기 무시), '열기' 토글 제거
 - FAQ/게시판 청크는 청크별 business_function 재태깅 (결정론적 키워드 규칙, 게이트 보호)
 
-청크 스키마(14필드): chunk_id · parent_doc_id · business_function · sub_category ·
+청크 스키마(15필드): chunk_id · parent_doc_id · business_function · sub_category ·
   page_type · coverage · variant · source_url · page_title · breadcrumb · text ·
-  attachments · has_attachments · attachment_count
+  attachments · has_attachments · attachment_count · qform_meta
 
 [doc-agg] 첨부는 두 입도(granularity)로 다룬다:
 - 청크 단위: 첨부 anchor_text가 그 청크 본문에 등장하면 해당 청크에만 부착(정밀).
@@ -24,6 +24,11 @@ import json
 import pathlib
 import sys
 
+try:
+    import qform_metadata
+except ImportError:  # ``from crawler import chunk`` 패키지 임포트 경로
+    from . import qform_metadata
+
 PARSED_DIR = "data/parsed"
 OUT_PATH = "data/chunks.jsonl"
 DOC_ATT_PATH = "data/doc_attachments.json"   # [doc-agg] 문서 단위 첨부 집합
@@ -35,7 +40,7 @@ MIN_CHUNK = 60   # 표 사이 낀 짧은 헤딩/라인 파편 병합 임계
 SCHEMA_FIELDS = ["chunk_id", "parent_doc_id", "business_function", "sub_category",
                  "page_type", "coverage", "variant", "source_url",
                  "page_title", "breadcrumb", "text",
-                 "attachments", "has_attachments", "attachment_count"]
+                 "attachments", "has_attachments", "attachment_count", "qform_meta"]
 
 
 def is_faq(rec: dict) -> bool:
@@ -258,6 +263,9 @@ def make_chunks(rec: dict) -> list[dict]:
             "attachments": chunk_atts,
             "has_attachments": bool(chunk_atts),
             "attachment_count": len(chunk_atts),
+            # 현재 청크 본문에서 매 빌드마다 다시 추출한다. 원문 개정·재청킹 시 옛
+            # 청크 번호나 근거 문구를 이어받지 않는다.
+            "qform_meta": qform_metadata.tag(part, bf_list[i]),
         })
     return out
 

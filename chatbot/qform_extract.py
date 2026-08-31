@@ -169,6 +169,26 @@ _METHOD_RULES = {
     "팩스": ["팩스"],
 }
 
+# 문서 메타데이터는 사용자 구어체보다 정밀도 우선이다. 예컨대 사용자 질의의 "대신"은
+# 대리인 신호지만 문서의 "공사가 대신 지급"은 대리 신청이 아니다. 따라서 청크 자동
+# 태깅에서는 제도 본문의 일반 동사·대명사를 빼고 명시적인 표제/법률 용어만 사용한다.
+_META_SUBJECT_RULES = [
+    ("미성년자", ["미성년", "친권"]),
+    ("군복무자", ["군복무", "군 복무", "군인"]),
+    ("사망 예금자", ["사망 예금자", "사망예금자", "피상속인"]),
+    ("비법인단체", ["비법인단체", "비법인 단체"]),
+    ("법인", ["법인"]),
+    ("국외거주 또는 유학생", ["국외거주", "국외 거주", "재외", "유학생"]),
+    ("대리인", ["대리인"]),
+    ("본인", ["본인"]),
+]
+_META_AGENT_KW = ["대리인", "위임", "친권자"]
+_META_SELF_KW = ["본인"]
+_META_PARTY_RULES = [
+    ("수취인", ["수취인", "착오송금 수취인", "착오송금수취인"]),
+    ("송금인", ["송금인", "착오송금인"]),
+]
+
 
 # 인자 생략 표식. `business_function=None`(= 계산했으나 불명)과 구별하기 위해 존재한다.
 #   생략      → 여기서 classify_query_bf() 폴백 계산 (기존 동작 보존)
@@ -281,6 +301,63 @@ def extract(query: str, business_function=_UNSET, *, scope=None) -> dict:
         out["_hits"] = {}
         for f in ("party", "sub_task", "qualification", "subject", "method"):
             out[f] = None
+
+    return out
+
+
+def extract_metadata(text: str, business_function: str, *, scope="msdr+dpin") -> dict:
+    """크롤링 청크 본문에서 검색용 Q-Form 메타데이터를 추출한다.
+
+    사용자 질의용 :func:`extract` 는 한 슬롯에서 첫 번째 고신뢰 값만 고른다. 반면 문서
+    청크는 표나 FAQ 답변 하나에 여러 자격·주체·접수수단이 함께 있을 수 있으므로, 본문에
+    **명시적으로 등장한 모든 값**을 고정 순서의 배열로 반환한다. LLM 호출은 없으며
+    재크롤링·재청킹 때 현재 본문에서 다시 계산된다.
+
+    ``qualification`` 은 문서 태깅에서 subject로부터 추론하지 않는다. 예를 들어
+    ``미성년자 본인이``와 ``친권자가 대신``은 서로 다른 조합이므로 본문에 실제로 나타난
+    본인/대리 표현만 기록해야 한다.
+    """
+    if business_function not in scope_bfs(scope):
+        return {}
+
+    qn = _nsp(text)
+    if not qn:
+        return {}
+
+    def add(out: dict[str, list[str]], field: str, value: str) -> None:
+        values = out.setdefault(field, [])
+        if value not in values:
+            values.append(value)
+
+    out: dict[str, list[str]] = {}
+
+    # 사용자 질의에서는 specific-first 첫 매칭이 안전하지만, 문서는 여러 용건을 함께
+    # 설명할 수 있으므로 발동한 모든 sub_task를 보존한다.
+    for label, kind, spec in _SUBTASK_RULES:
+        if kind == "any":
+            fired = bool(_hits_any(qn, spec))
+        else:
+            left, right = spec
+            fired = bool(_hits_any(qn, left)) and bool(_hits_any(qn, right))
+        if fired:
+            add(out, "sub_task", label)
+
+    for label, keywords in _META_SUBJECT_RULES:
+        if _hits_any(qn, keywords):
+            add(out, "subject", label)
+
+    if _hits_any(qn, _META_AGENT_KW):
+        add(out, "qualification", "대리인")
+    if _hits_any(qn, _META_SELF_KW):
+        add(out, "qualification", "본인")
+
+    for label, keywords in _META_PARTY_RULES:
+        if _hits_any(qn, keywords):
+            add(out, "party", label)
+
+    for channel in _METHOD_ORDER:
+        if _hits_any(qn, _METHOD_RULES[channel]):
+            add(out, "method", channel)
 
     return out
 
