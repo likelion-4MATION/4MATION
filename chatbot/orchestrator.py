@@ -43,12 +43,14 @@ def _report(decision: dict, report_context: dict | None) -> bool:
 
 
 def _scoped_answer(answer_fn, clause: str, bf: str, slots: dict,
-                   retrieval_query: str | None = None) -> dict:
+                   retrieval_query: str | None = None,
+                   qform_retrieval_mode: str = "off") -> dict:
     if answer_fn is not None:
         return answer_fn(clause, bf, slots)
     import chain
     return chain.answer_in_scope(
-        clause, bf=bf, qform=slots, retrieval_query=retrieval_query
+        clause, bf=bf, qform=slots, retrieval_query=retrieval_query,
+        qform_retrieval_mode=qform_retrieval_mode,
     )
 
 
@@ -63,8 +65,8 @@ def _process(flow: dict, unit: dict, *, ask_mode: str, boost: bool, config,
         ev = qform_flow.start(
             flow, unit["text"], ask_mode=ask_mode, boost=boost, config=config,
             business_function=bf, detect_multi=False,
-            answer_fn=lambda q, slots, retrieval_query=None: _scoped_answer(
-                answer_fn, q, bf, slots, retrieval_query
+            answer_fn=lambda q, slots, retrieval_query=None, qform_retrieval_mode="off": _scoped_answer(
+                answer_fn, q, bf, slots, retrieval_query, qform_retrieval_mode
             ),
         )
     else:

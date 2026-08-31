@@ -33,10 +33,12 @@ QFORM_SCOPE = "msdr"           # 슬롯 추출 스코프.
 #   → `crawler/HOLES.md` H39. 전환은 동결 해제 판정 후.
 MAX_QUEUE = 3                  # '대기 중인 용건' 큐 최대 길이 (K13)
 PANEL_EXPIRED = "gray"         # TTL 만료 항목 처리 — 회색 잔류 / 즉시 삭제
+QFORM_RETRIEVAL_MODE = "field_value"  # 검색 반영: 기존 질의 확장 / 청크 메타 부스트 / 병행
 
 SCOPE_VALUES = ("bf_match", "global", "off")
 EXPIRED_VALUES = ("gray", "drop")
 SCOPE_SET_VALUES = ("msdr", "msdr+dpin")
+RETRIEVAL_MODE_VALUES = ("off", "field_value", "metadata_soft", "field_value_soft")
 
 # 콘솔이 읽을 메타. 라벨·허용값·설명이 코드와 한 곳에 있어야 UI 가 값을 창작하지 않는다.
 SPEC: dict[str, dict] = {
@@ -77,6 +79,13 @@ SPEC: dict[str, dict] = {
         "values": EXPIRED_VALUES,
         "help": ("gray=TTL 만료 항목을 회색으로 남긴다(기본) · drop=화면에서 지운다. "
                  "조용한 삭제는 '아무것도 안 했는데 사라졌다'로 읽혀 기본값이 gray 다."),
+    },
+    "QFORM_RETRIEVAL_MODE": {
+        "label": "검색 반영 방식", "type": "enum", "default": QFORM_RETRIEVAL_MODE,
+        "values": RETRIEVAL_MODE_VALUES,
+        "help": ("off=미반영 · field_value=현재 [QFORM] field:value 질의 확장 · "
+                 "metadata_soft=청크에서 자동 추출한 슬롯 일치 가산 · "
+                 "field_value_soft=두 방식을 함께 적용"),
     },
 }
 
@@ -138,7 +147,8 @@ if __name__ == "__main__":
     print("\n── AC. 기본값이 명세서 표와 일치 ──")
     WANT = {"SLOT_CARRYOVER": True, "CARRYOVER_TTL": 3,
             "CARRYOVER_SCOPE": "bf_match", "MAX_ASK_TURNS": 2,
-            "QFORM_SCOPE": "msdr", "MAX_QUEUE": 3, "PANEL_EXPIRED": "gray"}
+            "QFORM_SCOPE": "msdr", "MAX_QUEUE": 3, "PANEL_EXPIRED": "gray",
+            "QFORM_RETRIEVAL_MODE": "field_value"}
     got = {k: v for k, v in resolve().items() if k != "_invalid"}
     ok_def = got == WANT
     print(f"  {got}\n  기대 {WANT}  → {'OK' if ok_def else 'DIFF ⛔'}")
@@ -155,6 +165,7 @@ if __name__ == "__main__":
         ({"MAX_QUEUE": 99}, "MAX_QUEUE", 3),
         ({"PANEL_EXPIRED": "숨김"}, "PANEL_EXPIRED", "gray"),
         ({"QFORM_SCOPE": "전업무"}, "QFORM_SCOPE", "msdr"),
+        ({"QFORM_RETRIEVAL_MODE": "무엇"}, "QFORM_RETRIEVAL_MODE", "field_value"),
         ({"없는키": 1}, None, None),
     ]
     ok_clamp = True

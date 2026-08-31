@@ -83,26 +83,36 @@ def _default_classify(query: str):
     return classify_query_bf(query)
 
 
-def _default_answer(query: str, qform: dict, *, retrieval_query: str | None = None):
+def _default_answer(query: str, qform: dict, *, retrieval_query: str | None = None,
+                    qform_retrieval_mode: str = "off"):
     import chain                             # 지연 임포트 — 되묻기 턴에는 여기까지 오지 않는다
-    return chain.answer_in_scope(query, qform=qform, retrieval_query=retrieval_query)
+    return chain.answer_in_scope(
+        query, qform=qform, retrieval_query=retrieval_query,
+        qform_retrieval_mode=qform_retrieval_mode,
+    )
 
 
-def _call_answer(answer_fn, query: str, retrieval_query: str, slots: dict):
+def _call_answer(answer_fn, query: str, retrieval_query: str, slots: dict,
+                 qform_retrieval_mode: str):
     """원문/검색문을 분리해 호출하되 기존 2인자 검증 스텁은 보존한다."""
     if answer_fn is None:
-        return _default_answer(query, slots, retrieval_query=retrieval_query)
+        return _default_answer(
+            query, slots, retrieval_query=retrieval_query,
+            qform_retrieval_mode=qform_retrieval_mode,
+        )
     try:
         parameters = inspect.signature(answer_fn).parameters
-        accepts_retrieval = (
-            "retrieval_query" in parameters
-            or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+        accepts_kwargs = any(
+            p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values()
         )
     except (TypeError, ValueError):
-        accepts_retrieval = False
-    if accepts_retrieval:
-        return answer_fn(query, slots, retrieval_query=retrieval_query)
-    return answer_fn(query, slots)
+        parameters, accepts_kwargs = {}, False
+    kwargs = {}
+    if "retrieval_query" in parameters or accepts_kwargs:
+        kwargs["retrieval_query"] = retrieval_query
+    if "qform_retrieval_mode" in parameters or accepts_kwargs:
+        kwargs["qform_retrieval_mode"] = qform_retrieval_mode
+    return answer_fn(query, slots, **kwargs)
 
 
 def _clean(slots: dict) -> dict:
@@ -341,7 +351,7 @@ def skip(state: dict, *, boost: bool = False, answer_fn=None, config=None) -> di
         else qform_config.resolve(config)
     state["pending_slot"] = None
     state["ask_turn"] = cfg["MAX_ASK_TURNS"]  # 이후 재발동 차단
-    return _finalize(state, boost=boost, answer_fn=answer_fn)
+    return _finalize(state, boost=boost, answer_fn=answer_fn, config=cfg)
 
 
 def _try_ask(state: dict, *, ask_mode: str, llm_call, cfg: dict) -> dict | None:
@@ -391,7 +401,9 @@ def _step(state: dict, *, ask_mode: str, boost: bool, answer_fn, llm_call,
     cfg = config if isinstance(config, dict) and "MAX_ASK_TURNS" in config \
         else qform_config.resolve(config)
     ev = _try_ask(state, ask_mode=ask_mode, llm_call=llm_call, cfg=cfg)
-    return ev if ev is not None else _finalize(state, boost=boost, answer_fn=answer_fn)
+    return ev if ev is not None else _finalize(
+        state, boost=boost, answer_fn=answer_fn, config=cfg
+    )
 
 
 def edit(state: dict, field: str, value: str | None = None, *,
@@ -508,27 +520,31 @@ def pass_slot(state: dict, field: str) -> dict:
             "survivors": qform_state.survivors(state["qform"])}
 
 
-def answer_now(state: dict, *, boost: bool = False, answer_fn=None) -> dict:
+def answer_now(state: dict, *, boost: bool = False, answer_fn=None, config=None) -> dict:
     """현재 슬롯 그대로 답변 턴을 돈다 — 슬롯 칩 수정 뒤 '다시 답변받기'(T6).
 
     `skip()` 과 다른 점: **`ask_turn` 을 상한으로 밀지 않는다.** 탈출구는 "더 묻지 마"
     라는 뜻이지만 재답변은 아니다 — 이후에 다른 슬롯을 해제하면 다시 물을 수 있어야 한다.
     """
     state["pending_slot"] = None
-    return _finalize(state, boost=boost, answer_fn=answer_fn)
+    return _finalize(state, boost=boost, answer_fn=answer_fn, config=config)
 
 
-def _finalize(state: dict, *, boost: bool, answer_fn) -> dict:
+def _finalize(state: dict, *, boost: bool, answer_fn, config=None) -> dict:
     """검색·생성. 검색문은 확장할 수 있지만 생성 질문은 항상 사용자 원문이다."""
     slots = dict(state["qform"])
     query = state["base_q"]
+    cfg = (config if isinstance(config, dict) and "QFORM_RETRIEVAL_MODE" in config
+           else qform_config.resolve(config))
+    retrieval_mode = cfg["QFORM_RETRIEVAL_MODE"] if boost else "off"
     search_q, boosted = query, None
-    if boost:
+    if retrieval_mode in {"field_value", "field_value_soft"}:
         extra = qform_state.serialize(slots)
         if extra:
             search_q = f"{query}\n\n{extra}"
             boosted = search_q
-    result = _call_answer(answer_fn, query, search_q, slots)
+    result = _call_answer(answer_fn, query, search_q, slots, retrieval_mode)
     return {"kind": "answer", "result": result, "slots": slots,
             "query": query, "search_q": search_q, "boosted": boosted,
+            "qform_retrieval_mode": retrieval_mode,
             "survivors": qform_state.survivors(slots)}

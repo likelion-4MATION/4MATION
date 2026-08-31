@@ -172,6 +172,11 @@ RRF_K = 4                 # RRF 상수(낮을수록 상위 랭크 신뢰↑)
 # 주의: 0.15는 이 448문항에서 스윕해 고른 값이므로 그만큼 낙관적 — 별도 split 확정 필요.
 # [08-18] 표 원자성 수정으로 청크가 자기완결적이 되며 0.15 → 0.05로 재하향(위 블록 참조).
 FACET_BOOST = 0.05        # 서브인텐트 패싯 부스트(업무 내부 형제문서 구분). sub_category 매칭 청크에 가산.
+# 크롤링/청킹 때 본문에서 자동 추출한 qform_meta와 사용자 슬롯의 필드 일치율을
+# 최종 융합 점수에 가산한다. 0이면 metadata_soft 모드도 순수 hybrid와 같다.
+# 현 기본은 보수적인 시작값이며 Q-Form 전용 평가셋으로 재튜닝해야 한다.
+QFORM_META_BOOST = 0.05
+QFORM_META_FIELDS = ("party", "sub_task", "qualification", "subject", "method")
 # ── RRF가 뭉갠 연속 신호 복원 (feature/kokopas 이식, 2026-08-20 448문항 실패분석) ──────
 # 병목은 후보 확보가 아니라 1~3위 변별이었다: top-30 recall .989인데 Hit@1은 .475.
 # Hit@1 실패 235건 중 147건(62.6%)이 정답 rank 2~3, 32.6%가 1위와 score gap<0.02.
@@ -513,6 +518,46 @@ class Searcher:
                     if hit:
                         rrf[idx] += FACET_BOOST * hit
 
+    @staticmethod
+    def _qform_tokens(value) -> set[str]:
+        if isinstance(value, (list, tuple, set)):
+            raw = value
+        else:
+            raw = str(value or "").split(";")
+        return {str(v).strip() for v in raw if str(v).strip()}
+
+    def _apply_qform_meta_boost(self, scores: dict[int, float], qform: dict | None,
+                                boost: float | None = None,
+                                business_function: str | None = None) -> dict[int, dict]:
+        """질의 슬롯과 청크 ``qform_meta``의 일치 필드 비율만큼 점수를 가산한다.
+
+        불일치 청크를 제거하거나 감점하지 않는다. 메타데이터가 없거나 추출에 실패한
+        청크는 기존 점수를 그대로 유지하므로 하드필터의 전멸 문제가 재발하지 않는다.
+        """
+        weight = QFORM_META_BOOST if boost is None else float(boost)
+        active = {
+            field: self._qform_tokens((qform or {}).get(field))
+            for field in QFORM_META_FIELDS
+            if self._qform_tokens((qform or {}).get(field))
+        }
+        if weight <= 0 or not active:
+            return {}
+
+        applied: dict[int, dict] = {}
+        for idx in scores:
+            effective_bf = getattr(self, "_bf", None)
+            if business_function and effective_bf and effective_bf[idx] != business_function:
+                continue
+            meta = self.chunks[idx].get("qform_meta") or {}
+            matches = [field for field, wanted in active.items()
+                       if wanted & self._qform_tokens(meta.get(field))]
+            if not matches:
+                continue
+            delta = weight * len(matches) / len(active)
+            scores[idx] += delta
+            applied[idx] = {"boost": delta, "matches": matches}
+        return applied
+
     def _infer_bf_from_pool(self, pool: list[tuple[int, float]]) -> str | None:
         """1차 검색 상위 결과의 업무를 순위 가중 투표해 역추론한다(PRF).
 
@@ -554,7 +599,8 @@ class Searcher:
         return out
 
     def search(self, query: str, k: int = 5, mode: str = "hybrid",
-               bf_override: str | None = None) -> list[dict]:
+               bf_override: str | None = None, qform: dict | None = None) -> list[dict]:
+        qform_applied: dict[int, dict] = {}
         if mode == "dense":
             hits = self.dense(query, k)
         elif mode == "bm25":
@@ -579,12 +625,20 @@ class Searcher:
                     base = sorted(rrf.items(), key=lambda x: x[1], reverse=True)[:QBF_PRF_TOPN]
                     bf = self._infer_bf_from_pool(base)
                 self._apply_bf_boost(rrf, dsc, query, bf, BF_BOOST)
+                qform_applied = self._apply_qform_meta_boost(
+                    rrf, qform, business_function=bf
+                )
                 pool = sorted(rrf.items(), key=lambda x: x[1], reverse=True)
             else:
                 if bf is None and QBF_PRF_TOPN:
                     base = self.hybrid_soft(query, QBF_PRF_TOPN, bf=None, boost=0.0)
                     bf = self._infer_bf_from_pool(base)
                 pool = self.hybrid(query, max(k * 5, 50), bf=bf)
+                hard_scores = dict(pool)
+                qform_applied = self._apply_qform_meta_boost(
+                    hard_scores, qform, business_function=bf
+                )
+                pool = sorted(hard_scores.items(), key=lambda x: x[1], reverse=True)
             hits = self._cap_by_doc(pool, BF_DOC_CAP)[:k]
         else:
             hits = self.hybrid(query, k)
@@ -593,5 +647,8 @@ class Searcher:
             c = dict(self.chunks[idx])
             c["_score"] = round(score, 4)
             c["_bf"] = self._bf[idx]   # 유효 BF(FAQ는 bf_map 조인값). business_function은 원본 보존.
+            qmeta = qform_applied.get(idx) or {}
+            c["_qform_boost"] = round(float(qmeta.get("boost", 0.0)), 4)
+            c["_qform_matches"] = list(qmeta.get("matches") or [])
             out.append(c)
         return out

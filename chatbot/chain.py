@@ -389,7 +389,8 @@ def _generate_with_gate(messages: list[dict], hits: list[dict], req_id: str):
 
 
 def _reject_result(label: str, reason: str, cls_meta: dict, k: int,
-                   query: str, retrieval_query: str) -> dict:
+                   query: str, retrieval_query: str,
+                   qform_retrieval_mode: str = "off") -> dict:
     """reject 경로 반환 조립 — 검색·생성·검증 생략. 계약 4필드 + checks/_meta 완비(T2 검증 대상)."""
     return {
         "text": REJECT_TEXT,
@@ -405,7 +406,9 @@ def _reject_result(label: str, reason: str, cls_meta: dict, k: int,
         "_meta": {"model": MODEL_NAME, "cls_label": label, "cls_reason": reason, **cls_meta,
                   "latency_ms": cls_meta.get("cls_latency_ms"), "k": k,
                   "original_query": query, "retrieval_query": retrieval_query,
-                  "retrieval_applied": False, "retrieval_boosted": False},
+                  "retrieval_applied": False, "retrieval_boosted": False,
+                  "qform_retrieval_mode": qform_retrieval_mode,
+                  "qform_metadata_applied": False},
     }
 
 
@@ -418,7 +421,8 @@ def _resolve_k(k: int | None) -> int:
 
 
 def answer(query: str, k: int | None = None, qform: dict | None = None, *,
-           retrieval_query: str | None = None) -> dict:
+           retrieval_query: str | None = None,
+           qform_retrieval_mode: str = "off") -> dict:
     """계약 4필드 + 부가(checks/_meta). 분류 선행 — 소관밖은 검색·생성 없이 즉시 거절.
 
     qform(큐폼 슬롯 dict, 선택): 주어지면 첨부를 조합 조인으로 후단 필터(B안, §3-1).
@@ -429,9 +433,14 @@ def answer(query: str, k: int | None = None, qform: dict | None = None, *,
     label, reason, cls_meta = classify(query)
     route = _route(label)
     if route == "reject":
-        return _reject_result(label, reason, cls_meta, k, query, search_query)
+        return _reject_result(
+            label, reason, cls_meta, k, query, search_query, qform_retrieval_mode
+        )
 
-    hits = get_searcher().search(search_query, k=k, mode="hybrid_bf")
+    search_kwargs = ({"qform": qform}
+                     if qform_retrieval_mode in {"metadata_soft", "field_value_soft"}
+                     else {})
+    hits = get_searcher().search(search_query, k=k, mode="hybrid_bf", **search_kwargs)
     context = "\n\n".join(f"[출처{i}] {h['page_title']}\n{h['text']}" for i, h in enumerate(hits, 1))
     messages = [{"role": "system", "content": SYS_PROMPT_V2},
                 {"role": "user", "content": f"[참고문서]\n{context}\n\n[질문]\n{query}"}]
@@ -457,12 +466,15 @@ def answer(query: str, k: int | None = None, qform: dict | None = None, *,
                   **meta, "k": k, "qform": qform,
                   "original_query": query, "retrieval_query": search_query,
                   "retrieval_applied": True, "retrieval_boosted": search_query != query,
+                  "qform_retrieval_mode": qform_retrieval_mode,
+                  "qform_metadata_applied": bool(search_kwargs),
                   "retrieval": _retrieval_meta(hits)},
     }
 
 
 def answer_in_scope(query: str, k: int | None = None, qform: dict | None = None,
-                    bf: str | None = None, *, retrieval_query: str | None = None) -> dict:
+                    bf: str | None = None, *, retrieval_query: str | None = None,
+                    qform_retrieval_mode: str = "off") -> dict:
     """상단 6-BF 라우터가 IN으로 확정한 절만 검색·생성한다.
 
     OOS 분류를 다시 수행하지 않으며, ``bf``가 있으면 검색의 업무 부스트에도 같은 값을
@@ -471,7 +483,12 @@ def answer_in_scope(query: str, k: int | None = None, qform: dict | None = None,
     """
     k = _resolve_k(k)
     search_query = retrieval_query if retrieval_query is not None else query
-    hits = get_searcher().search(search_query, k=k, mode="hybrid_bf", bf_override=bf)
+    search_kwargs = ({"qform": qform}
+                     if qform_retrieval_mode in {"metadata_soft", "field_value_soft"}
+                     else {})
+    hits = get_searcher().search(
+        search_query, k=k, mode="hybrid_bf", bf_override=bf, **search_kwargs
+    )
     context = "\n\n".join(f"[출처{i}] {h['page_title']}\n{h['text']}" for i, h in enumerate(hits, 1))
     messages = [{"role": "system", "content": SYS_PROMPT_V2},
                 {"role": "user", "content": f"[참고문서]\n{context}\n\n[질문]\n{query}"}]
@@ -492,6 +509,8 @@ def answer_in_scope(query: str, k: int | None = None, qform: dict | None = None,
                   **meta, "k": k, "qform": qform, "business_function": bf,
                   "original_query": query, "retrieval_query": search_query,
                   "retrieval_applied": True, "retrieval_boosted": search_query != query,
+                  "qform_retrieval_mode": qform_retrieval_mode,
+                  "qform_metadata_applied": bool(search_kwargs),
                   "retrieval": _retrieval_meta(hits)},
     }
 
@@ -506,7 +525,10 @@ def _retrieval_meta(hits: list[dict]) -> list[dict]:
             score = None
         out.append({"rank": rank, "score": score, "chunk_id": h.get("chunk_id"),
                     "doc_id": h.get("parent_doc_id"), "title": h.get("page_title"),
-                    "url": h.get("source_url"), "text_excerpt": str(h.get("text") or "")[:500]})
+                    "url": h.get("source_url"),
+                    "qform_boost": h.get("_qform_boost", 0.0),
+                    "qform_matches": h.get("_qform_matches", []),
+                    "text_excerpt": str(h.get("text") or "")[:500]})
     return out
 
 

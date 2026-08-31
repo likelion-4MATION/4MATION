@@ -125,7 +125,9 @@ class RuntimeBackend:
 
     def answer_now(self, flow: dict, ui: dict) -> dict:
         self.refresh_runtime()
-        return self.qform_flow.answer_now(flow, boost=ui["boost"])
+        return self.qform_flow.answer_now(
+            flow, boost=ui["boost"], config=self.config(ui)
+        )
 
     def next_unit(self, flow: dict, ui: dict, report_context: dict) -> dict | None:
         self.refresh_runtime()
