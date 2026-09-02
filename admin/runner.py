@@ -159,7 +159,159 @@ def run_pipeline(recrawl: bool) -> None:
         sys.argv = old
 
 
-def run_eval(index_dir: str, gt_name: str = "gt_testset_retrieval_450.jsonl") -> dict:
+# ── Q-Form 연결 ─────────────────────────────────────────────────────────
+# 평가·재검증이 챗봇과 **같은 Q-Form 경로**를 타게 하는 부분이다. 이게 없으면
+# `QFORM_RETRIEVAL_MODE` 를 무엇으로 두든 러너는 질문 원문만 넘겼고 `search()` 에
+# `qform` 인자를 붙이지 않았다 — 콘솔에서 값을 바꿔도 지표가 한 자리도 안 움직이는
+# 상태였다. `apply_search_settings()` 가 `rag.QFORM_META_BOOST` 를 주입해도
+# 슬롯이 없으면 `_apply_qform_meta_boost()` 가 즉시 빈손으로 돌아온다.
+QFORM_FIELDS = ("party", "sub_task", "qualification", "subject", "method")
+QFORM_QUERY_MODES = {"field_value", "field_value_soft"}    # 검색문 field:value 확장
+QFORM_SOFT_MODES = {"metadata_soft", "field_value_soft"}   # 청크 메타 가산
+QFORM_OFF = {"mode": "off", "boost": 0.0, "scope": "msdr"}
+
+
+def qform_settings() -> dict:
+    """콘솔에 저장된 Q-Form 검색 설정. 콘솔을 못 읽어도 평가 자체는 돌아야 한다."""
+    try:
+        import settings as admin_settings
+        cfg = admin_settings.current()
+        return {"mode": str(cfg["QFORM_RETRIEVAL_MODE"]),
+                "boost": float(cfg["QFORM_META_BOOST"]),
+                "scope": str(cfg["QFORM_SCOPE"])}
+    except Exception as e:                       # 콘솔 설정이 없으면 기존 동작(미반영)
+        return {**QFORM_OFF, "error": f"{type(e).__name__}: {e}"}
+
+
+def qform_slots(question: str, business_function: str | None, scope: str) -> dict:
+    """평가 문항 → 사용자 슬롯. 챗봇과 **같은 결정론 추출기**(LLM 호출 0)를 쓴다.
+
+    평가셋에는 슬롯 라벨이 없다. 사람이 손으로 붙이면 그 라벨 자체가 또 하나의 가정이
+    되므로, 실제 대화에서 슬롯을 만드는 것과 같은 함수로 질문에서 뽑는다. 업무는
+    평가셋의 `business_function` 을 그대로 넘긴다 — 인자를 생략하면 `extract()` 가
+    내부 폴백 분류를 돌려서 라우터 유무에 따라 지표가 흔들린다.
+    """
+    import qform_extract
+    got = qform_extract.extract(question, business_function, scope=scope)
+    return {f: got[f] for f in QFORM_FIELDS if got.get(f)}
+
+
+def qform_query(question: str, slots: dict, mode: str) -> tuple[str, dict]:
+    """모드별 (검색문, `search()` 추가 인자). `qform_flow._finalize` 와 같은 규칙이다."""
+    query, kwargs = question, {}
+    if slots and mode in QFORM_QUERY_MODES:
+        import qform_state
+        extra = qform_state.serialize(slots)
+        if extra:
+            query = f"{question}\n\n{extra}"
+    if slots and mode in QFORM_SOFT_MODES:
+        kwargs["qform"] = dict(slots)
+    return query, kwargs
+
+
+def qform_coverage(index_dir: str) -> dict:
+    """이 인덱스 청크에 `qform_meta` 가 실제로 붙어 있는가(콘솔 대시보드와 같은 계산)."""
+    try:
+        import metrics
+        return metrics.qform_meta_coverage(pathlib.Path(index_dir) / "chunk_meta.jsonl")
+    except Exception as e:
+        return {"available": False, "error": f"{type(e).__name__}: {e}"}
+
+
+def qform_warnings(qf: dict, cov: dict) -> list[str]:
+    """설정은 켜져 있는데 실제로는 무동작인 조합을 잡아낸다."""
+    warn = []
+    if qf.get("error"):
+        warn.append(f"콘솔 Q-Form 설정을 읽지 못해 미반영으로 돌립니다 ({qf['error']}).")
+    if qf.get("mode") in QFORM_SOFT_MODES:
+        if not cov.get("available"):
+            warn.append("청크 메타를 읽지 못했습니다 — 메타 가산 효과를 확인할 수 없습니다.")
+        elif not cov.get("keyed"):
+            warn.append("인덱스 청크에 qform_meta 필드가 없습니다 — 재청킹해야 메타 가산이 동작합니다.")
+        elif not cov.get("tagged"):
+            warn.append("qform_meta 가 전부 비어 있습니다 — data/qform_combos_*.csv 를 확인하세요.")
+        if float(qf.get("boost") or 0.0) <= 0:
+            warn.append("QFORM_META_BOOST 가 0이라 메타 가산이 꺼져 있습니다.")
+    return warn
+
+
+def check_qform(index_dir: str, out: dict) -> dict:
+    """`Q-Form 메타데이터 확인` 단계 본체 — 설정·태깅 현황·경고를 결과에 싣는다."""
+    step("Q-Form 메타데이터 확인")
+    qf = qform_settings()
+    cov = qform_coverage(index_dir)
+    warn = qform_warnings(qf, cov)
+    out["qform_settings"] = qf
+    out["qform_meta"] = cov
+    out["qform_warnings"] = warn
+    print(f"  Q-Form 반영 {qf['mode']} · 가산 {qf['boost']} · 슬롯 스코프 {qf['scope']}"
+          f" · 태깅 {cov.get('tagged', 0)}/{cov.get('chunks', 0)}청크", flush=True)
+    for w in warn:
+        print(f"  ⚠ {w}", flush=True)
+    return qf
+
+
+def _anchor_hits(ev, gt_rows: list[dict], retrieved: list[dict],
+                 chunk_meta: list[dict]) -> dict:
+    """대조군 비교용 앵커 지표(판정 기준은 본 평가와 동일).
+
+    `hit@5` 는 콘솔 전체가 쓰는 잣대라 반드시 같이 낸다. 다만 Q-Form 가산은 후보를
+    새로 넣는 게 아니라 **이미 뽑힌 청크의 순위를 미는** 신호라, 효과가 먼저 나타나는
+    자리는 1위다 — hit@5 만 보면 순위가 2→1로 올라도 0.0000 으로 보인다.
+    """
+    if not gt_rows or not retrieved:
+        return {}
+    res = ev.evaluate_retrieval(gt_rows, retrieved, chunk_meta,
+                                score="anchor", id_fallback=False)
+    a = res.get("anchor_level") or {}
+    if not a.get("n_scored"):
+        return {}
+    return {"hit@1": round(a.get("hit@1", 0), 4), "hit@5": round(a.get("hit@5", 0), 4),
+            "mrr@10": round(a.get("mrr", 0), 4), "n_scored": a["n_scored"]}
+
+
+def _qform_report(ev, searcher, gt: list[dict], retrieved: list[dict],
+                  chunk_meta: list[dict], slots_by_id: dict[str, dict],
+                  qf: dict, boosted_hits: int) -> dict:
+    """Q-Form이 이번 측정에서 무엇을 했는지 — 적용 범위와 **대조군 대비 효과**.
+
+    대조군은 **슬롯이 잡힌 문항만** 다시 돌린다. 슬롯이 없는 문항은 두 경로의 검색
+    입력이 글자 단위로 같아 결과도 정의상 같으므로, 전체를 두 번 돌리면 시간만 두 배
+    쓰고 차이는 그 부분집합에서만 나온다. 전체 지표에 섞어 희석하지 않고 분모를
+    적용 문항으로 밝혀 적는다.
+    """
+    mode = qf.get("mode", "off")
+    fields = {f: 0 for f in QFORM_FIELDS}
+    for slots in slots_by_id.values():
+        for f in slots:
+            fields[f] = fields.get(f, 0) + 1
+    rep = {"mode": mode, "scope": qf.get("scope"), "boost": float(qf.get("boost") or 0.0),
+           "n_questions": len(gt), "n_with_slots": len(slots_by_id),
+           "slot_fields": fields, "boosted_hits": boosted_hits, "applied": None}
+    if qf.get("error"):
+        rep["error"] = qf["error"]
+    if mode == "off" or not slots_by_id:
+        return rep
+
+    sub = [r for r in gt if r.get("id") in slots_by_id]
+    by_id = {r["id"]: r for r in retrieved if r.get("id")}
+    on = [by_id[r["id"]] for r in sub if r.get("id") in by_id]
+    off = [{"id": r.get("id"),
+            "retrieved_chunk_ids": [h["chunk_id"] for h in
+                                    searcher.search(r["question"], k=10, mode="hybrid_bf")]}
+           for r in sub]
+    a_on = _anchor_hits(ev, sub, on, chunk_meta)
+    a_off = _anchor_hits(ev, sub, off, chunk_meta)
+    rep["applied"] = {"n": len(sub), "n_scored": a_on.get("n_scored"),
+                      "on": a_on or None, "off": a_off or None,
+                      "delta": {m: round(a_on[m] - a_off[m], 4)
+                                for m in ("hit@1", "hit@5", "mrr@10")
+                                if m in a_on and m in a_off} or None}
+    return rep
+
+
+def run_eval(index_dir: str, gt_name: str = "gt_testset_retrieval_450.jsonl",
+             qform: dict | None = None) -> dict:
     """평가 함수를 직접 호출해 지표 dict 를 받는다 — 콘솔 문자열을 정규식으로 긁지 않는다.
 
     **판정은 앵커텍스트 전용이다**(`score="anchor"` · `id_fallback=False`). `gt_chunk_ids`
@@ -167,6 +319,11 @@ def run_eval(index_dir: str, gt_name: str = "gt_testset_retrieval_450.jsonl") ->
     바꿀 때마다 수치가 검색 성능이 아니라 판정 방식 때문에 움직이고, 콘솔 ⑦탭이 그
     움직임을 '정확도 변화'로 표시한다. 그래서 `hit@k` · `mrr@10` 은 전부 앵커 판정값이다.
     chunk_id 판정값은 `chunk_hit@*` 로 따로 실어 감사용으로만 남긴다.
+
+    `qform`: `qform_settings()` 가 읽어 온 콘솔의 Q-Form 검색 설정. 모드가 `off` 가
+    아니면 챗봇과 같은 경로(검색문 field:value 확장 · 청크 메타 가산)로 검색하고,
+    무엇이 얼마나 달라졌는지를 `qform` 블록에 함께 싣는다. **기본값은 `None` =
+    미반영**이라 이 인자를 주지 않는 호출은 기존과 완전히 같다.
     """
     import eval as ev
     import rag
@@ -177,12 +334,25 @@ def run_eval(index_dir: str, gt_name: str = "gt_testset_retrieval_450.jsonl") ->
     if not gt_path.exists():
         return {"error": f"평가셋을 찾을 수 없습니다: {gt_name}"}
 
+    qf = {**QFORM_OFF, **(qform or {})}
+    mode, scope = str(qf.get("mode") or "off"), str(qf.get("scope") or "msdr")
+
     gt = ev._load_jsonl(gt_path)
     searcher = rag.Searcher(index_dir=index_dir)
-    retrieved = [{"id": r.get("id"),
-                  "retrieved_chunk_ids": [h["chunk_id"] for h in
-                                          searcher.search(r["question"], k=10, mode="hybrid_bf")]}
-                 for r in gt]
+    slots_by_id: dict[str, dict] = {}
+    boosted_hits = 0
+    retrieved = []
+    for r in gt:
+        slots = (qform_slots(r["question"], r.get("business_function"), scope)
+                 if mode != "off" else {})
+        query, kwargs = qform_query(r["question"], slots, mode)
+        hits = searcher.search(query, k=10, mode="hybrid_bf", **kwargs)
+        if slots:
+            boosted_hits += sum(1 for h in hits if h.get("_qform_boost"))
+            if r.get("id"):                      # 대조군은 id 로 짝을 맞춘다
+                slots_by_id[r["id"]] = slots
+        retrieved.append({"id": r.get("id"),
+                          "retrieved_chunk_ids": [h["chunk_id"] for h in hits]})
     chunk_meta = ev._load_jsonl(pathlib.Path(index_dir) / "chunk_meta.jsonl")
     res = ev.evaluate_retrieval(gt, retrieved, chunk_meta,
                                 score="anchor", id_fallback=False)
@@ -208,6 +378,9 @@ def run_eval(index_dir: str, gt_name: str = "gt_testset_retrieval_450.jsonl") ->
         "chunk_hit@5": round(m.get("hit@5", 0), 4),
         "chunk_n_evaluated": m.get("n_evaluated"),
         "recall@50": round(m.get("macro_recall@50", 0), 4),
+        # Q-Form 이 이번 측정에 무엇을 했는가(적용 문항 수·대조군 대비 효과)
+        "qform": _qform_report(ev, searcher, gt, retrieved, chunk_meta,
+                               slots_by_id, qf, boosted_hits),
     }
 
 
@@ -282,9 +455,13 @@ def run_verify(out: dict) -> None:
     out["chunks"] = n
     print(f"  서비스 인덱스 청크 {n}건 → {idx}", flush=True)
 
+    # 읽기 전용 모드라 태깅이 비어 있어도 고치지 않는다 — 상태만 알리고 재청킹을 권한다.
+    qf = check_qform(rag.INDEX_DIR, out)
+
     step("평가셋 검증")
     out["search"] = apply_search_settings()
-    out["metrics"] = run_eval(rag.INDEX_DIR)
+    out["metrics"] = run_eval(rag.INDEX_DIR, qform=qf)
+    out["qform"] = (out["metrics"] or {}).get("qform")
     out["read_only"] = True
 
 
@@ -374,9 +551,13 @@ def main() -> int:
         out["chunks"] = n
         print(f"  인덱스 청크 {n}건 → {idx}")
 
+        # 방금 자른 청크에 Q-Form 메타가 실제로 붙었는지 확인한 뒤 평가에 그 설정을 건다.
+        qf = check_qform(index_dir, out)
+
         step("평가셋 검증")
         out["search"] = apply_search_settings()
-        out["metrics"] = run_eval(index_dir)
+        out["metrics"] = run_eval(index_dir, qform=qf)
+        out["qform"] = (out["metrics"] or {}).get("qform")
 
         if sandbox:
             step("샌드박스 정리 · 원상복구")

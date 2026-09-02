@@ -29,6 +29,7 @@ import time
 import uuid
 from datetime import datetime, timezone
 
+import metrics
 import settings
 
 BASE = pathlib.Path(__file__).resolve().parent
@@ -44,14 +45,15 @@ _GATE_GO = False
 GATE_TIMEOUT = 1800                # 30분
 
 # 단계 이름은 runner.py 가 내보내는 `__STEP__` 문자열과 정확히 같아야 한다
+QF = "Q-Form 메타데이터 확인"      # runner.check_qform()
 STEPS = {
     "eval": ["현재 상태 백업", "청크 파라미터 주입", "저장된 원문으로 다시 자르기",
-             "검색 인덱스 확인", "평가셋 검증", "샌드박스 정리 · 원상복구"],
+             "검색 인덱스 확인", QF, "평가셋 검증", "샌드박스 정리 · 원상복구"],
     "rebuild": ["현재 상태 백업", "청크 파라미터 주입", "저장된 원문으로 다시 자르기",
-                "검색 인덱스 확인", "평가셋 검증"],
+                "검색 인덱스 확인", QF, "평가셋 검증"],
     "rebuild_recrawl": ["현재 상태 백업", "청크 파라미터 주입", "홈페이지 수집 + 파싱",
-                        "검색 인덱스 확인", "평가셋 검증"],
-    "verify": ["검색 인덱스 확인", "평가셋 검증"],
+                        "검색 인덱스 확인", QF, "평가셋 검증"],
+    "verify": ["검색 인덱스 확인", QF, "평가셋 검증"],
     "files": ["현재 상태 백업", "첨부 파일 내려받기", "청크 메타에 연결"],
 }
 
@@ -72,10 +74,14 @@ PLAN_SKIP = [("verify", "재검증 — 청크 설정 변경 없음")]
 
 # 기기 실측(2026-08-19 잡 기록): 재청킹+인덱싱 33초, 평가 33초
 # 첨부: 45건 × (REQUEST_INTERVAL 1.5초 + 지터 0~0.7초 + 응답) ≈ 2분
-ETA = {"eval": 70, "rebuild": 70, "verify": 35, "files": 130}
+# Q-Form 반영이 켜져 있으면 슬롯이 잡힌 문항(450 중 약 1/4)을 대조군으로 한 번 더
+# 돌린다 — 평가 33초 기준 +10초 남짓. 켜지 않아도 오차 범위라 상수 하나로 둔다.
+ETA = {"eval": 80, "rebuild": 80, "verify": 45, "files": 130}
 ETA_RECRAWL = 600                      # 홈페이지 폴라이트 수집분(재빌드에 더해진다)
 
 CHUNK_KEYS = ("CHUNK_SIZE", "OVERLAP", "MIN_CHUNK", "TABLE_KEEP", "TABLE_GAP_MAX")
+# 잡 기록에 남기는 Q-Form 스냅샷 — "이 수치는 무슨 Q-Form 설정에서 잰 값인가".
+QFORM_KEYS = ("QFORM_RETRIEVAL_MODE", "QFORM_META_BOOST", "QFORM_SCOPE")
 
 
 def resolve_plan(kind: str, eff: dict | None = None) -> tuple[list, dict]:
@@ -129,6 +135,13 @@ def preflight() -> list[str]:
     cfg = settings.effective()
     if int(cfg.get("OVERLAP", 100)) == 0:
         warn.append("겹침 0은 코드상 직전 조각을 통째로 복제합니다 — 실행 시 자동으로 1자로 낮춥니다.")
+    # Q-Form 검색 반영은 설정만으로 켜지지 않는다 — 청크 태깅과 가산치가 함께 있어야 한다.
+    # 잡이 도는 중에는 건너뛴다. 재빌드가 인덱스를 새로 쓰는 동안 읽으면 반쯤 쓰인 파일을
+    # 보고 "인덱스가 없다"는 경고가 1.5초마다 깜빡인다(이 함수는 상태 폴링마다 불린다).
+    if not running():
+        for reason in (metrics.qform().get("reasons") or []):
+            if not reason.startswith("검색 반영 방식"):   # '미반영' 은 선택이지 경고가 아니다
+                warn.append(f"Q-Form 검색 반영: {reason}")
     d = settings.dirty()
     if d:
         warn.append(d.get("reason") or "재청킹이 필요한 변경이 있습니다.")
@@ -202,6 +215,7 @@ def start(kind: str = "rebuild", actor: str = "admin", guard: bool = True,
                 "kind": mode, "label": label, "status": "pending",
                 "steps": [{"name": n, "status": "pending", "seconds": None} for n in names],
                 "metrics": None, "chunks": None, "error": None, "seconds": None,
+                "qform": None, "qform_meta": None, "qform_warnings": None,
             })
             eta += ETA_RECRAWL if (mode == "rebuild" and recrawl) else ETA[mode]
 
@@ -216,6 +230,7 @@ def start(kind: str = "rebuild", actor: str = "admin", guard: bool = True,
             "eta_seconds": eta,
             "warnings": preflight(),
             "params": {k: cfg[k] for k in CHUNK_KEYS},
+            "qform": {k: cfg[k] for k in QFORM_KEYS},
             "log": "", "result": None, "error": None,
         }
         _CURRENT = job
@@ -321,6 +336,9 @@ def _run(job: dict, cfg: dict) -> None:
             stage["seconds"] = round(time.time() - t0, 1)
             stage["metrics"] = (res.get("metrics") or None)
             stage["chunks"] = res.get("chunks")
+            stage["qform"] = res.get("qform")
+            stage["qform_meta"] = res.get("qform_meta")
+            stage["qform_warnings"] = res.get("qform_warnings") or None
             job["result"] = res
 
             if rc != 0 or res.get("status") != "done":

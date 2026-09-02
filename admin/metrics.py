@@ -33,6 +33,16 @@ ACC_CHUNK = {                                       # "size|overlap|table_keep"
 }
 BASELINE = {"acc": 0.9081, "calls": 1.72, "latency": 4.0, "cost": 9.7}
 
+# ── Q-Form 검색 반영 ────────────────────────────────────────────────────
+# 설정 하나로 켜지는 기능이 아니다. `metadata_soft` 계열은 **청크에 붙은
+# `qform_meta` 와 0보다 큰 가산치**가 함께 있어야 실제로 순위를 바꾼다. 셋 중
+# 하나만 빠져도 검색은 순수 hybrid 와 완전히 같은데 화면은 '켜짐'으로 보인다 —
+# 그러면 관리자는 효과가 없는 값을 계속 만지게 된다. 그래서 설정이 아니라
+# **연결 상태**를 재서 돌려준다.
+QFORM_FIELDS = ("party", "sub_task", "qualification", "subject", "method")
+QFORM_QUERY_MODES = {"field_value", "field_value_soft"}    # 검색문 field:value 확장
+QFORM_SOFT_MODES = {"metadata_soft", "field_value_soft"}   # 청크 메타 가산
+
 # 경로별 실측 (exp/route_e2e_report.md)
 LAT_FAST, LAT_RAG = 1.32, 4.96
 FAST_SHARE = 0.28                                   # 조기차단(OOS) 경로 비중
@@ -333,9 +343,75 @@ def corpus() -> dict:
         "avg": round(sum(lens) / len(lens)), "median": lens[len(lens) // 2],
         "max": max(lens), "min": min(lens),
         "over_limit": sum(1 for x in lens if x > int(settings.effective()["CHUNK_SIZE"])),
+        "qform": qform_meta_coverage(f),
         "mtime": datetime.fromtimestamp(f.stat().st_mtime, timezone.utc)
                  .astimezone().isoformat(timespec="seconds"),
     }
+
+
+def qform_meta_coverage(path: pathlib.Path) -> dict:
+    """청크 JSONL의 `qform_meta` 태깅 현황.
+
+    `keyed`(필드를 가진 청크)와 `tagged`(값이 하나라도 있는 청크)를 나눠 센다.
+    둘을 뭉뚱그리면 원인을 못 가린다 — `keyed=0` 은 **Q-Form 태깅 이전에 만들어진
+    산출물**이라 다시 자르면 해결되고, `keyed>0 tagged=0` 은 조합표
+    (`data/qform_combos_*.csv`)나 추출기가 비어 있다는 뜻이라 재청킹해도 그대로다.
+    """
+    empty = {"available": False, "chunks": 0, "keyed": 0, "tagged": 0,
+             "ratio": 0.0, "fields": {f: 0 for f in QFORM_FIELDS}}
+    if not path.exists():
+        return empty
+    fields = {f: 0 for f in QFORM_FIELDS}
+    total = keyed = tagged = 0
+    try:
+        with path.open(encoding="utf-8") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                r = json.loads(line)
+                total += 1
+                if "qform_meta" not in r:
+                    continue
+                keyed += 1
+                meta = r.get("qform_meta") or {}
+                if not meta:
+                    continue
+                tagged += 1
+                for f in QFORM_FIELDS:
+                    if meta.get(f):
+                        fields[f] += 1
+    except (OSError, json.JSONDecodeError):
+        return empty
+    return {"available": True, "chunks": total, "keyed": keyed, "tagged": tagged,
+            "ratio": round(tagged / total, 4) if total else 0.0, "fields": fields}
+
+
+def qform() -> dict:
+    """서비스 인덱스 기준 Q-Form 연결 상태 — 설정과 산출물이 맞물려 있는가.
+
+    `effective` 는 "지금 질의에서 Q-Form이 실제로 검색을 바꾸는가"다. 이유가 하나라도
+    잡히면 False 이고, 그 이유를 그대로 화면에 띄운다.
+    """
+    cfg = settings.effective()
+    mode = str(cfg.get("QFORM_RETRIEVAL_MODE") or "off")
+    boost = float(cfg.get("QFORM_META_BOOST") or 0.0)
+    cov = qform_meta_coverage(CRAWLER / "data" / "index" / "chunk_meta.jsonl")
+    uses_meta = mode in QFORM_SOFT_MODES
+    reasons = []
+    if mode == "off":
+        reasons.append("검색 반영 방식이 '미반영'입니다.")
+    if uses_meta:
+        if not cov["available"]:
+            reasons.append("검색 인덱스가 없습니다 — 먼저 재빌드가 필요합니다.")
+        elif not cov["keyed"]:
+            reasons.append("인덱스 청크에 qform_meta 필드가 없습니다 — 재청킹해야 메타 가산이 동작합니다.")
+        elif not cov["tagged"]:
+            reasons.append("qform_meta 가 전부 비어 있습니다 — 조합표(data/qform_combos_*.csv)를 확인하세요.")
+        if boost <= 0:
+            reasons.append("QFORM_META_BOOST 가 0이라 메타 가산이 꺼져 있습니다.")
+    return {"mode": mode, "boost": boost, "scope": cfg.get("QFORM_SCOPE"),
+            "uses_metadata": uses_meta, "uses_query": mode in QFORM_QUERY_MODES,
+            "coverage": cov, "effective": not reasons, "reasons": reasons}
 
 
 def attachments() -> dict:

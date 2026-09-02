@@ -104,6 +104,28 @@ python runner.py --mode rebuild --config '{"CHUNK_SIZE":800,"OVERLAP":100}'
 라우터와 임베딩을 함께 로드할 때 메모리가 부족하면 `exit 139`가 날 수 있습니다. 데이터 손상
 오류와 구분해야 하며, 먼저 메모리를 확보한 뒤 재실행합니다.
 
+### Q-Form 검색 반영 측정
+
+`verify`·`eval`·`rebuild`는 평가 직전에 `Q-Form 메타데이터 확인` 단계를 거치고, 저장된
+`QFORM_RETRIEVAL_MODE`·`QFORM_META_BOOST`·`QFORM_SCOPE`를 그대로 걸어 검색합니다. 문항 슬롯은
+평가셋의 `business_function`을 넘겨 `chatbot/qform_extract.extract()`로 뽑습니다(LLM 호출 0).
+
+결과의 `qform` 블록에는 슬롯이 잡힌 문항 수, 가산이 실제로 걸린 검색 결과 수, 그리고
+**같은 문항을 Q-Form 없이 돌린 대조군과의 차이**(`hit@1`/`hit@5`/`mrr@10`)가 들어갑니다.
+슬롯이 없는 문항은 두 경로의 검색 입력이 같으므로 대조군을 따로 돌리지 않습니다.
+
+`qform_meta` 블록은 인덱스 청크의 태깅 현황입니다. 설정이 켜져 있어도 여기가 비어 있으면
+검색은 순수 hybrid와 같습니다 — 원인은 두 가지로 갈립니다.
+
+| 상태 | 뜻 | 조치 |
+|---|---|---|
+| `keyed=0` | Q-Form 태깅 이전에 만들어진 산출물 | 재청킹 |
+| `keyed>0`, `tagged=0` | 조합표가 비었거나 추출기 미탑재 | `crawler/data/qform_combos_*.csv` 확인 |
+| `boost=0` | 가산치가 0이라 순위가 안 바뀜 | ⑥ 고급의 `QFORM_META_BOOST` |
+
+세 경우 모두 실행 전 경고(`/api/job`의 `preflight`)와 `/api/dashboard`의
+`qform.effective=false`로 드러납니다.
+
 ## 인덱스 기준선 주의
 
 대시보드 코퍼스 수는 `crawler/data/chunks.jsonl`, 실제 검색은

@@ -17,6 +17,7 @@ const toast = (msg, bad) => {
 
 let SCHEMA = null, SAVED = {}, DRAFT = {}, DASH = null, GUARDS = [], ADV_UNLOCKED = false;
 let PLAN = null;                 // [한 번에 실행] 이 무엇을 돌릴지 — 서버가 계산해 준다
+let MEASURED = null;             // 마지막 실측 기록 — 결과창이 접혀도 ③ 탭은 이걸 그린다
 let GOLDEN_DIFF = [];            // 기준 설정과 다른 항목
 let ATT = null, ATT_DIRTY_ONLY = false, AX_KIND = 'file', AX_FILE = '';
 let REP_KEY = null;              // 교체 대상 첨부의 key
@@ -188,10 +189,10 @@ async function paint() {
     cls = "note bad";
     note = `정확도가 <b>${base.acc.toFixed(4)} → ${acc.value.toFixed(4)}</b>로 떨어집니다.`;
   }
-  const M = r.measured || {};
-  $("#resMeta").innerHTML = M["hit@5"] != null
-    ? `직전 실측 ${String(M.at).slice(0, 10)} · ${M.chunks ?? "—"}청크${
-        M.n_evaluated ? ` · 앵커 채점 ${M.n_evaluated}문항` : ""}`
+  const M = MEASURED = r.measured || null, ME = M || {};
+  $("#resMeta").innerHTML = ME["hit@5"] != null
+    ? `직전 실측 ${String(ME.at).slice(0, 10)} · ${ME.chunks ?? "—"}청크${
+        ME.n_evaluated ? ` · 앵커 채점 ${ME.n_evaluated}문항` : ""}${qformMeta(ME)}`
     : "재빌드 실측 기록 없음 — 왼쪽 [③ 재검증]으로 지금 인덱스를 잴 수 있습니다.";
   $("#accSrc").innerHTML = acc.src
     ? `정확도 근거: <code>${esc(acc.src)}</code>` : "";
@@ -202,6 +203,19 @@ async function paint() {
   renderPlan();
 
   paintTab7(acc, r.measured);
+  renderQform();          // 실측이 갱신됐으니 ③ 탭 Q-Form 패널도 다시 그린다
+}
+
+/* 결과창 헤더(접어도 보이는 유일한 줄)에 붙는 Q-Form 한 조각.
+   Q-Form 표는 #jobBox 안에 있고 그건 compact 모드에서 통째로 숨는다 — 접어 둔 사람은
+   Q-Form 이 돌았다는 사실 자체를 볼 수 없으므로 여기에 요약을 남긴다. */
+function qformMeta(m) {
+  const a = m && m.qform && m.qform.applied;
+  if (!a || !a.delta) return "";
+  const d = a.delta["hit@1"];
+  const c = d > 1e-9 ? "var(--ok)" : d < -1e-9 ? "var(--bad)" : "var(--tx3)";
+  return ` · Q-Form ${esc(m.qform.mode)} <span style="color:${c}">${
+    d > 0 ? "+" : ""}${Number(d).toFixed(4)} hit@1</span>`;
 }
 
 /* ── ⑦ 탭 비교 패널 ─────────────────────────────────────
@@ -313,8 +327,42 @@ function stageBlock(s) {
     ${s.status === "done" && s.metrics && !s.metrics.error
       ? `<div style="font-size:11px;color:var(--tx3);margin-top:5px">앵커 hit@1 ${s.metrics["hit@1"]}
          · hit@3 ${s.metrics["hit@3"]} · MRR ${s.metrics["mrr@10"]} · ${s.chunks ?? "—"}청크${s.metrics["n_evaluated"] ? ` · 채점 ${s.metrics["n_evaluated"]}문항` : ""}</div>` : ""}
+    ${qformStage(s)}
     ${s.error ? `<div class="note bad" style="margin-top:8px">${esc(s.error)}</div>` : ""}
   </div>`;
+}
+
+/* 이 단계에서 Q-Form 이 실제로 무엇을 했는가.
+   설정값을 되읽어 보여 주는 게 아니라 **측정 결과**를 보여 준다 — 적용 문항 수,
+   가산이 실제로 걸린 검색 결과 수, 그리고 같은 문항을 Q-Form 없이 돌린 대조군과의 차이. */
+const QF_DELTA = (d, m) => {
+  if (!d || d[m] === undefined || d[m] === null) return "—";
+  const v = Number(d[m]);
+  const c = v > 1e-9 ? "var(--ok)" : v < -1e-9 ? "var(--bad)" : "var(--tx3)";
+  return `<span style="color:${c}">${v > 0 ? "+" : ""}${v.toFixed(4)}</span>`;
+};
+function qformStage(s) {
+  const q = s.qform, cov = s.qform_meta;
+  if (!q && !cov && !(s.qform_warnings || []).length) return "";
+  const warn = (s.qform_warnings || []).map(w =>
+    `<div class="note bad" style="margin-top:6px">Q-Form: ${esc(w)}</div>`).join("");
+  if (!q) return warn;
+  const mode = (ENUM_LABEL.QFORM_RETRIEVAL_MODE || {})[q.mode] || q.mode;
+  const tag = cov && cov.available ? ` · 청크 태깅 ${cov.tagged}/${cov.chunks}` : "";
+  const head = `<div style="font-size:11px;color:var(--tx3);margin-top:5px">
+    Q-Form <b>${esc(mode)}</b> · 가산 ${q.boost} · 슬롯 잡힌 문항 ${q.n_with_slots}/${q.n_questions}${tag}
+    ${q.boosted_hits ? ` · 가산 적용 ${q.boosted_hits}건` : ""}</div>`;
+  const a = q.applied;
+  if (!a || !a.on || !a.off) return head + warn;
+  const row = m => `<tr><td>${m}</td><td class="n">${a.off[m].toFixed(4)}</td>
+    <td class="n"><b>${a.on[m].toFixed(4)}</b></td><td class="n">${QF_DELTA(a.delta, m)}</td></tr>`;
+  return head + `<table style="margin-top:6px">
+    <tr><th>Q-Form 적용 문항 ${a.n_scored ?? a.n}개</th><th class="n">미반영</th>
+        <th class="n">현재 설정</th><th class="n">차이</th></tr>
+    ${["hit@1", "hit@5", "mrr@10"].filter(m => m in a.on && m in a.off).map(row).join("")}</table>
+    <div class="hint">슬롯이 잡히지 않은 문항은 두 경로의 검색 입력이 같아 결과도 같습니다 —
+      그래서 <b>슬롯이 잡힌 문항만</b> 대조군으로 다시 돌려 비교합니다. 분모가 작으니
+      한두 문항 차이가 크게 보입니다.</div>` + warn;
 }
 
 function gateBlock(j) {
@@ -395,7 +443,7 @@ function jobSummary(j) {
     .find(s => s.metrics && !s.metrics.error && s.metrics["hit@5"] != null);
   const [lab] = RUN_STATE[j.status] || ["", ""];
   return `${lab}${last ? ` · 앵커 hit@5 ${hit5(last.metrics)}${
-    last.chunks ? ` · ${last.chunks}청크` : ""}` : ""}`;
+    last.chunks ? ` · ${last.chunks}청크` : ""}${qformMeta(last.metrics)}` : ""}`;
 }
 
 function renderJob(j, pre) {
@@ -507,6 +555,61 @@ const collectGuard = () => ({
   start: $("#gStart").value, end: $("#gEnd").value, priority: 50,
 });
 
+/* Q-Form 검색 반영이 **실제로 걸려 있는가**. 설정 하나로 켜지지 않는다 —
+   청크에 붙은 메타와 0보다 큰 가산치가 함께 있어야 순위가 바뀐다. 셋 중 하나가
+   빠지면 검색은 순수 hybrid 와 같은데 화면만 '켜짐'으로 보이므로 이유를 적어 준다. */
+function renderQform() {
+  const q = DASH.qform, cov = (q && q.coverage) || {};
+  const box = $("#qformWire"), corp = $("#qformCorpus");
+  if (!q) { if (box) box.innerHTML = ""; if (corp) corp.innerHTML = ""; return; }
+  const mode = (ENUM_LABEL.QFORM_RETRIEVAL_MODE || {})[q.mode] || q.mode;
+  const state = q.effective ? ["검색에 반영 중", "ok"]
+    : q.mode === "off" ? ["검색에 반영 안 함", ""] : ["설정은 켜졌지만 무동작", "bad"];
+  if (box) box.innerHTML = `<div class="note ${state[1]}" style="margin-top:10px">
+    <b>검색 반영 상태 — ${esc(state[0])}</b><br>
+    방식 <b>${esc(mode)}</b>${q.uses_metadata
+      ? ` · 가산 ${q.boost} · 인덱스 청크 태깅 <b>${cov.tagged ?? 0}/${cov.chunks ?? 0}</b>` : ""}
+    ${q.mode !== "off" && (q.reasons || []).length
+      ? "<br>" + q.reasons.map(esc).join("<br>") : ""}
+    <br>실제 효과는 왼쪽 <b>[③ 재검증]</b>이 Q-Form 없이 돌린 대조군과 비교해 재 줍니다.</div>
+    ${qformMeasured(q)}`;
+  if (corp) corp.innerHTML = !cov.available ? "" :
+    `<div class="hint">Q-Form 메타데이터: <b>${cov.tagged}/${cov.chunks}청크</b>
+      (${(cov.ratio * 100).toFixed(1)}%) 태깅됨 · ${Object.entries(cov.fields || {})
+        .map(([f, n]) => `${f} ${n}`).join(" · ")}
+      ${cov.keyed === 0 ? " — <b style=\"color:var(--bad)\">필드 자체가 없습니다. 재청킹이 필요합니다.</b>" : ""}
+      <br>다시 자를 때마다 현재 본문에서 새로 뽑습니다 — 청크 파라미터를 바꾸면 이 수치도 함께 움직입니다.</div>`;
+}
+
+/* 마지막 재검증이 실제로 잰 Q-Form 효과. 잡 결과창은 끝나면 접히고 compact 모드에서는
+   통째로 숨으므로, 여기 ③ 탭에 **남는 자리**를 따로 둔다. 값은 잡 기록이 아니라
+   `measured`(설정과 함께 저장된 실측)에서 읽으므로 새로고침해도 그대로 있다. */
+function qformMeasured(now) {
+  const m = MEASURED, a = m && m.qform && m.qform.applied;
+  if (!m || !m.qform) return "";
+  const when = String(m.at || "").slice(0, 16).replace("T", " ");
+  if (!a || !a.on || !a.off) return `<div class="hint">마지막 실측(${esc(when)})에서는
+    슬롯이 잡힌 문항이 없어 Q-Form 효과를 재지 못했습니다 —
+    적용 업무(<b>${esc(fmt("QFORM_SCOPE", m.qform.scope))}</b>) 밖 질문만 있었습니다.</div>`;
+  const row = k => `<tr><td>${k}</td><td class="n">${a.off[k].toFixed(4)}</td>
+    <td class="n"><b>${a.on[k].toFixed(4)}</b></td><td class="n">${QF_DELTA(a.delta, k)}</td></tr>`;
+  /* 측정 당시 설정과 지금 설정이 다르면 반드시 밝힌다. 값을 바꾸고 아직 안 잰 상태에서
+     옛 수치를 '현재 설정'이라는 열 제목 아래 두면 화면이 거짓말을 한다. */
+  const stale = m.qform.mode !== now.mode || Math.abs(m.qform.boost - Number(now.boost)) > 1e-9;
+  return `<table style="margin-top:10px">
+    <tr><th>마지막 실측 · Q-Form 적용 ${a.n_scored ?? a.n}문항</th>
+        <th class="n">미반영</th><th class="n">잰 설정</th><th class="n">차이</th></tr>
+    ${["hit@1", "hit@5", "mrr@10"].filter(k => k in a.on && k in a.off).map(row).join("")}</table>
+    ${stale ? `<div class="note warn">이 수치는 <b>${esc(fmt("QFORM_RETRIEVAL_MODE", m.qform.mode))}
+      · 가산 ${m.qform.boost}</b>에서 잰 값입니다. 지금 설정은
+      <b>${esc(fmt("QFORM_RETRIEVAL_MODE", now.mode))} · 가산 ${now.boost}</b>이라
+      아직 재지 않았습니다 — [③ 재검증]을 눌러야 지금 설정의 수치가 나옵니다.</div>` : ""}
+    <div class="hint">${esc(when)} 측정 · 슬롯 잡힌 문항 ${m.qform.n_with_slots}/${
+      m.qform.n_questions} · 가산 실제 적용 ${m.qform.boosted_hits}건.
+    슬롯이 없는 문항은 두 경로의 검색 입력이 같아 대조군에서 뺐습니다 —
+    분모가 작으니 한두 문항 차이가 크게 보입니다.</div>`;
+}
+
 /* ── 대시보드 ──────────────────────────────────────────── */
 function renderDash() {
   const c = DASH.corpus, f = DASH.freshness, h = DASH.health, a = DASH.attachments;
@@ -529,6 +632,8 @@ function renderDash() {
   $("#health").innerHTML = `
     <div class="row"><div class="lab"><b>검색 인덱스</b><small>${(h.index_mtime || "").slice(0, 16) || "—"}</small></div><div class="ctl"><span class="dot ${h.index_ok ? "ok" : "bad"}"></span>${h.index_ok ? "정상" : "없음"}</div></div>
     <div class="row"><div class="lab"><b>업무 분류 모델</b><small>실패 시 키워드 방식으로 자동 전환</small></div><div class="ctl"><span class="dot ${h.router_ok ? "ok" : "warn"}"></span>${h.router_ok ? "정상" : "폴백"}</div></div>`;
+
+  renderQform();
 
   const tot = DASH.business.reduce((s, b) => s + b.n, 0);
   $("#bizTbl").innerHTML = DASH.business.map(b =>
