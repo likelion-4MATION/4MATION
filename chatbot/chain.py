@@ -38,10 +38,13 @@ from dotenv import load_dotenv
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "crawler"))
 sys.path.insert(0, str(ROOT / "chatbot"))
+if str(ROOT / "admin") not in sys.path:
+    sys.path.append(str(ROOT / "admin"))
 load_dotenv(ROOT / ".env")  # 키 값은 어떤 로그·에러에도 싣지 않는다
 
 import answer_checks
 import attachments  # 근거 문서 첨부 조회(청크 태깅 우선 + 문서 폴백) — 순수 로컬, 계약 부가 필드
+import guards  # 승인된 최신성 정정 규칙 — 검색 뒤 조건부 프롬프트 주입
 
 LLM_PROVIDER = os.environ.get("LLM_PROVIDER", "hcx").strip().lower()
 SUPPORTED_LLM_PROVIDERS = {"hcx", "deepseek", "upstage"}
@@ -84,6 +87,7 @@ CHECK_URLS_ENABLED = True
 CHECK_CITATIONS_ENABLED = True
 CHECK_NUMBERS_ENABLED = True
 STRICT_URL = True
+GUARDS_ENABLED = True
 ANSWER_GATE_BLOCK_TEXT = (
     "죄송합니다. 생성된 답변이 근거 검증을 통과하지 못해 표시하지 않았습니다. "
     "질문을 조금 더 구체적으로 바꾸거나 공식 안내 문서를 확인해 주세요."
@@ -91,15 +95,20 @@ ANSWER_GATE_BLOCK_TEXT = (
 _calls = 0
 
 SYS_PROMPT_V2 = (
-    "너는 예금보험공사(KDIC) 안내 챗봇이다. 아래 [참고문서]에만 근거해서 답하라.\n"
+    "너는 예금보험공사(KDIC) 안내 챗봇이다. 아래 [참고문서]와, 제공된 경우 "
+    "[관리자 정정 사실]에만 근거해서 답하라.\n"
     "규칙:\n"
-    "1. 참고문서에 없는 내용은 답하지 말고 \"안내 문서에서 확인되지 않는 내용입니다\"라고 말하라. "
+    "1. 참고문서와 관리자 정정 사실에 없는 내용은 답하지 말고 "
+    "\"안내 문서에서 확인되지 않는 내용입니다\"라고 말하라. "
     "알고 있는 지식으로 보충하지 마라.\n"
     "2. URL·전화번호는 참고문서에 적힌 것만 그대로 옮겨라. 새 URL을 만들지 마라.\n"
-    "3. 근거로 쓴 문장 끝마다 [출처N]을 표기하라. 출처 없이 서술하지 마라.\n"
+    "3. 참고문서에 근거한 문장은 [출처N], 관리자 정정에 근거한 문장은 [관리자 정정]을 "
+    "문장 끝에 표기하라. 근거 표시 없이 서술하지 마라.\n"
     "4. 참고문서의 서술이 과거형(\"과거에는\")이거나 조건부(\"~인 경우\")면 그 한정을 그대로 유지하라. "
     "현재 사실로 바꾸지 마라.\n"
-    "5. 금액·수치는 참고문서 표기 그대로 적어라. 단위 환산을 하지 마라."
+    "5. 금액·수치는 근거 자료의 표기 그대로 적어라. 단위 환산을 하지 마라.\n"
+    "6. [관리자 정정 사실]이 참고문서와 충돌하면 관리자 정정을 우선하고 해당 문장 끝에 "
+    "[관리자 정정]을 붙여라. (답변 보류) 항목은 그 안내만 전달하고 충돌하는 문서 내용은 답하지 마라."
 )
 
 # 분류 프롬프트 — 트랩셋 문항 원문 인용 금지(과적합 방지), 소관 업무의 일반 서술만 사용.
@@ -286,7 +295,8 @@ def _route(label: str) -> str:
     return "reject" if label == "소관밖" else "rag"
 
 
-def _run_answer_checks(text: str | None, hits: list[dict]) -> dict:
+def _run_answer_checks(text: str | None, hits: list[dict], *, allowed_numbers=None,
+                       admin_correction_allowed: bool = False) -> dict:
     """현재 런타임 설정으로 규칙 검증. 이 함수 자체는 답변을 바꾸지 않는다."""
     if text is None:
         return {"ok": False, "flags": ["생성 실패 — 검증 생략"], "results": {}}
@@ -299,6 +309,8 @@ def _run_answer_checks(text: str | None, hits: list[dict]) -> dict:
         check_urls_enabled=CHECK_URLS_ENABLED,
         check_citations_enabled=CHECK_CITATIONS_ENABLED,
         check_numbers_enabled=CHECK_NUMBERS_ENABLED,
+        allowed_numbers=allowed_numbers,
+        admin_correction_allowed=admin_correction_allowed,
     )
 
 
@@ -316,7 +328,8 @@ def _set_gate(checks: dict, *, action: str, attempts: int, mode: str,
     return checks
 
 
-def _generate_with_gate(messages: list[dict], hits: list[dict], req_id: str):
+def _generate_with_gate(messages: list[dict], hits: list[dict], req_id: str, *,
+                        allowed_numbers=None, admin_correction_allowed: bool = False):
     """답변 생성 → 규칙 검증 → 관리자 정책 적용.
 
     ``regenerate``는 실패 플래그를 모델에 돌려주고 전체 답변을 다시 쓰게 한다.
@@ -326,7 +339,10 @@ def _generate_with_gate(messages: list[dict], hits: list[dict], req_id: str):
     text, meta = _llm(messages, req_id=req_id)
     attempts = 1
     total_latency = meta.get("latency_ms") or 0
-    checks = _run_answer_checks(text, hits)
+    checks = _run_answer_checks(
+        text, hits, allowed_numbers=allowed_numbers,
+        admin_correction_allowed=admin_correction_allowed,
+    )
     mode = ANSWER_GATE_MODE if ANSWER_GATE_MODE in {"warn", "regenerate", "block"} else "warn"
 
     if text is None:
@@ -347,8 +363,9 @@ def _generate_with_gate(messages: list[dict], hits: list[dict], req_id: str):
                 "content": (
                     "[자동 검증 결과]\n"
                     f"{flags}\n\n"
-                    "위 위반을 모두 고쳐 답변 전체를 다시 작성하라. 참고문서 밖 정보는 넣지 말고, "
-                    "근거 문장마다 올바른 [출처N]을 붙여라. 검증 결과나 수정 과정을 설명하지 마라."
+                    "위 위반을 모두 고쳐 답변 전체를 다시 작성하라. 참고문서와 관리자 정정 사실 밖의 "
+                    "정보는 넣지 말고, 근거에 따라 [출처N] 또는 [관리자 정정]을 붙여라. "
+                    "검증 결과나 수정 과정을 설명하지 마라."
                 ),
             }
             retry_messages = [*messages, {"role": "assistant", "content": text}, correction]
@@ -360,7 +377,10 @@ def _generate_with_gate(messages: list[dict], hits: list[dict], req_id: str):
                 retry_error = retry_meta.get("error") or "generation_failed"
                 break
             text = revised
-            checks = _run_answer_checks(text, hits)
+            checks = _run_answer_checks(
+                text, hits, allowed_numbers=allowed_numbers,
+                admin_correction_allowed=admin_correction_allowed,
+            )
             if checks["ok"]:
                 checks = _set_gate(
                     checks, action="regenerated", attempts=attempts, mode=mode
@@ -420,6 +440,65 @@ def _resolve_k(k: int | None) -> int:
     return resolved
 
 
+def _generation_inputs(query: str, hits: list[dict], business: str | None = None):
+    """검색 근거와 조건에 맞는 최신성 가드를 한 LLM 요청으로 조립한다."""
+    context = "\n\n".join(
+        f"[출처{i}] {h['page_title']}\n{h['text']}" for i, h in enumerate(hits, 1)
+    )
+    matched: list[dict] = []
+    whitelist: set[str] = set()
+    guard_error = None
+    if GUARDS_ENABLED:
+        try:
+            business_scope = business or {
+                h.get("business_function") for h in hits if h.get("business_function")
+            }
+            raw_context = "\n\n".join(h.get("text") or "" for h in hits)
+            matched = guards.match(query, raw_context, business=business_scope)
+            whitelist = guards.numeric_whitelist(matched)
+            guard_block = guards.prompt_block(matched)
+        except Exception as exc:
+            # 가드 저장소 장애가 기본 RAG 답변까지 중단시키지 않도록 안전하게 미적용한다.
+            matched, whitelist, guard_block = [], set(), ""
+            guard_error = type(exc).__name__
+    else:
+        guard_block = ""
+
+    sections = [f"[참고문서]\n{context}"]
+    if guard_block:
+        sections.append(guard_block)
+    sections.append(f"[질문]\n{query}")
+    messages = [
+        {"role": "system", "content": SYS_PROMPT_V2},
+        {"role": "user", "content": "\n\n".join(sections)},
+    ]
+    return messages, matched, whitelist, guard_error
+
+
+def _record_guard_fires(matched: list[dict]) -> bool:
+    """한 답변 요청에서 매칭된 가드의 발동 횟수를 한 번씩 기록한다."""
+    if not matched:
+        return False
+    try:
+        guards.bump_fired([g["id"] for g in matched])
+        return True
+    except Exception:
+        return False
+
+
+def _guard_meta(matched: list[dict], error: str | None, counter_recorded: bool) -> dict:
+    return {
+        "enabled": bool(GUARDS_ENABLED),
+        "applied": bool(matched),
+        "matched": [
+            {"id": g.get("id"), "title": g.get("title"), "kind": g.get("kind")}
+            for g in matched
+        ],
+        "counter_recorded": counter_recorded,
+        "error": error,
+    }
+
+
 def answer(query: str, k: int | None = None, qform: dict | None = None, *,
            retrieval_query: str | None = None,
            qform_retrieval_mode: str = "off") -> dict:
@@ -441,10 +520,12 @@ def answer(query: str, k: int | None = None, qform: dict | None = None, *,
                      if qform_retrieval_mode in {"metadata_soft", "field_value_soft"}
                      else {})
     hits = get_searcher().search(search_query, k=k, mode="hybrid_bf", **search_kwargs)
-    context = "\n\n".join(f"[출처{i}] {h['page_title']}\n{h['text']}" for i, h in enumerate(hits, 1))
-    messages = [{"role": "system", "content": SYS_PROMPT_V2},
-                {"role": "user", "content": f"[참고문서]\n{context}\n\n[질문]\n{query}"}]
-    text, meta, checks = _generate_with_gate(messages, hits, req_id="chain")
+    messages, matched_guards, allowed_numbers, guard_error = _generation_inputs(query, hits)
+    text, meta, checks = _generate_with_gate(
+        messages, hits, req_id="chain", allowed_numbers=allowed_numbers,
+        admin_correction_allowed=bool(matched_guards),
+    )
+    guard_counter_recorded = _record_guard_fires(matched_guards)
 
     sources, seen = [], set()
     for h in hits:
@@ -468,6 +549,7 @@ def answer(query: str, k: int | None = None, qform: dict | None = None, *,
                   "retrieval_applied": True, "retrieval_boosted": search_query != query,
                   "qform_retrieval_mode": qform_retrieval_mode,
                   "qform_metadata_applied": bool(search_kwargs),
+                  "guards": _guard_meta(matched_guards, guard_error, guard_counter_recorded),
                   "retrieval": _retrieval_meta(hits)},
     }
 
@@ -489,10 +571,14 @@ def answer_in_scope(query: str, k: int | None = None, qform: dict | None = None,
     hits = get_searcher().search(
         search_query, k=k, mode="hybrid_bf", bf_override=bf, **search_kwargs
     )
-    context = "\n\n".join(f"[출처{i}] {h['page_title']}\n{h['text']}" for i, h in enumerate(hits, 1))
-    messages = [{"role": "system", "content": SYS_PROMPT_V2},
-                {"role": "user", "content": f"[참고문서]\n{context}\n\n[질문]\n{query}"}]
-    text, meta, checks = _generate_with_gate(messages, hits, req_id="chain-in")
+    messages, matched_guards, allowed_numbers, guard_error = _generation_inputs(
+        query, hits, business=bf,
+    )
+    text, meta, checks = _generate_with_gate(
+        messages, hits, req_id="chain-in", allowed_numbers=allowed_numbers,
+        admin_correction_allowed=bool(matched_guards),
+    )
+    guard_counter_recorded = _record_guard_fires(matched_guards)
 
     sources, seen = [], set()
     for h in hits:
@@ -511,6 +597,7 @@ def answer_in_scope(query: str, k: int | None = None, qform: dict | None = None,
                   "retrieval_applied": True, "retrieval_boosted": search_query != query,
                   "qform_retrieval_mode": qform_retrieval_mode,
                   "qform_metadata_applied": bool(search_kwargs),
+                  "guards": _guard_meta(matched_guards, guard_error, guard_counter_recorded),
                   "retrieval": _retrieval_meta(hits)},
     }
 

@@ -256,9 +256,10 @@ def apply_runtime() -> list[str]:
         chain.CHECK_CITATIONS_ENABLED = bool(cfg["checkCitations"])
         chain.CHECK_NUMBERS_ENABLED = bool(cfg["checkNumbers"])
         chain.STRICT_URL = bool(cfg["strictUrl"])
+        chain.GUARDS_ENABLED = bool(cfg["guardsEnabled"])
         touched += ["chain.GEN_PARAMS", "chain.CALL_BUDGET", "chain.CONTEXT_K",
                     "chain.LLM_PROVIDER",
-                    "chain.ANSWER_GATE"]
+                    "chain.ANSWER_GATE", "chain.GUARDS_ENABLED"]
     except Exception as e:
         touched.append(f"chain: skip({type(e).__name__})")
 

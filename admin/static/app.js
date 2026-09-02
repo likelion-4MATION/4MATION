@@ -504,7 +504,7 @@ function renderGuards() {
       <td class="n">${g.old_value ? `${g.old_value} → ${g.new_value}` : "—"}</td>
       <td class="n">${g.fired || 0}회</td>
       <td><span class="dot ${g.active ? "ok" : g.expired ? "bad" : "warn"}"></span>${
-        g.expired ? "만료" : g.status === "approved" ? "승인됨" : "초안"}${
+        g.expired ? "만료" : g.scheduled ? "예약" : g.status === "approved" ? "승인됨" : "초안"}${
         g.days_left !== null && g.days_left !== undefined && g.days_left >= 0 && g.days_left <= 7
           ? `<br><small style="color:var(--warn)">${g.days_left}일 후 만료</small>` : ""}</td>
       <td><button class="btn sm ghost" data-ge="${g.id}">수정</button>
