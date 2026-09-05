@@ -39,6 +39,8 @@ TARGETS = ["data/chunks.jsonl", "data/index"]
 # data/files 는 파일을 더하기만 하고 manifest 는 맨 끝에 한 번에 쓰므로 백업하지 않는다
 # (중간에 죽어도 옛 manifest 가 그대로 남아 콘솔은 계속 동작한다).
 FILE_TARGETS = ["data/parsed"]
+QFORM_FIELDS = ("party", "sub_task", "qualification", "subject", "method")
+QFORM_EVAL_VERSION = 1
 
 
 def step(name: str) -> None:
@@ -159,6 +161,48 @@ def run_pipeline(recrawl: bool) -> None:
         sys.argv = old
 
 
+def _qform_search_request(question: str, business_function: str | None, *,
+                          mode: str, scope: str) -> dict:
+    """실서비스 ``qform_flow._finalize``와 같은 검색 입력을 결정론적으로 만든다.
+
+    평가에서는 대화형 되묻기를 재현할 수 없으므로 첫 질문에서 실제로 추출된 슬롯만
+    사용한다. 슬롯이 하나도 없으면 네 모드 모두 원 질의를 그대로 검색한다. ``active``는
+    네 모드를 동일한 Q-Form 대상 문항군에서 따로 비교하기 위한 표식이다.
+    """
+    import qform_extract
+    import qform_state
+
+    raw = qform_extract.extract(
+        question, business_function=business_function, scope=scope
+    )
+    slots = {field: raw.get(field) for field in QFORM_FIELDS}
+    active = any(slots.values())
+    search_query = question
+    search_kwargs = {}
+    if active and mode in {"field_value", "field_value_soft"}:
+        extra = qform_state.serialize(slots)
+        if extra:
+            search_query = f"{question}\n\n{extra}"
+    if active and mode in {"metadata_soft", "field_value_soft"}:
+        search_kwargs["qform"] = slots
+    return {"query": search_query, "kwargs": search_kwargs,
+            "slots": slots, "active": active}
+
+
+def _anchor_summary(result: dict) -> dict:
+    """evaluate_retrieval 결과에서 관리자 화면용 앵커 지표만 평탄화한다."""
+    anchor = result.get("anchor_level") or {}
+    return {
+        "n_evaluated": anchor.get("n_scored", 0),
+        "n_missing_span": anchor.get("n_missing_span", 0),
+        "hit@1": round(anchor.get("hit@1", 0), 4),
+        "hit@3": round(anchor.get("hit@3", 0), 4),
+        "hit@5": round(anchor.get("hit@5", 0), 4),
+        "hit@10": round(anchor.get("hit@10", 0), 4),
+        "mrr@10": round(anchor.get("mrr", 0), 4),
+    }
+
+
 def run_eval(index_dir: str, gt_name: str = "gt_testset_retrieval_450.jsonl") -> dict:
     """평가 함수를 직접 호출해 지표 dict 를 받는다 — 콘솔 문자열을 정규식으로 긁지 않는다.
 
@@ -177,15 +221,42 @@ def run_eval(index_dir: str, gt_name: str = "gt_testset_retrieval_450.jsonl") ->
     if not gt_path.exists():
         return {"error": f"평가셋을 찾을 수 없습니다: {gt_name}"}
 
+    import qform_config
+
     gt = ev._load_jsonl(gt_path)
     searcher = rag.Searcher(index_dir=index_dir)
-    retrieved = [{"id": r.get("id"),
-                  "retrieved_chunk_ids": [h["chunk_id"] for h in
-                                          searcher.search(r["question"], k=10, mode="hybrid_bf")]}
-                 for r in gt]
+    mode = qform_config.QFORM_RETRIEVAL_MODE
+    scope = qform_config.QFORM_SCOPE
+    retrieved, qform_ids = [], set()
+    expanded_count = metadata_count = 0
+    for row in gt:
+        question = row["question"]
+        # 검색기 내부와 같은 BF 판정기를 한 번만 호출한다. gold business_function은
+        # 슬롯 게이트에 사용하지 않는다 — 정답 라벨 누설 없이 실서비스 입력을 재현한다.
+        bf = rag.classify_query_bf(question)
+        request = _qform_search_request(
+            question, bf, mode=mode, scope=scope
+        )
+        if request["active"]:
+            qform_ids.add(row.get("id"))
+        expanded_count += int(request["query"] != question)
+        metadata_count += int("qform" in request["kwargs"])
+        search_kwargs = dict(request["kwargs"])
+        if bf is not None:
+            search_kwargs["bf_override"] = bf
+        hits = searcher.search(
+            request["query"], k=10, mode="hybrid_bf", **search_kwargs
+        )
+        retrieved.append({"id": row.get("id"),
+                          "retrieved_chunk_ids": [h["chunk_id"] for h in hits]})
     chunk_meta = ev._load_jsonl(pathlib.Path(index_dir) / "chunk_meta.jsonl")
     res = ev.evaluate_retrieval(gt, retrieved, chunk_meta,
                                 score="anchor", id_fallback=False)
+    qform_gt = [row for row in gt if row.get("id") in qform_ids]
+    qform_retrieved = [row for row in retrieved if row.get("id") in qform_ids]
+    qform_res = (ev.evaluate_retrieval(
+        qform_gt, qform_retrieved, chunk_meta, score="anchor", id_fallback=False
+    ) if qform_gt else None)
     m, a = res["chunk_level"], res.get("anchor_level") or {}
     if not a:
         # 앵커 판정을 못 했다면(청크 메타 없음 등) 숫자를 만들지 않는다 — chunk_id 수치를
@@ -194,6 +265,7 @@ def run_eval(index_dir: str, gt_name: str = "gt_testset_retrieval_450.jsonl") ->
                          "chunk_meta.jsonl 에 text 필드가 있는지 확인하세요.",
                 "chunks": len(chunk_meta)}
     scored, missing = a.get("n_scored", 0), a.get("n_missing_span", 0)
+    qf = _anchor_summary(qform_res or {}) if qform_res else {}
     return {
         "score_mode": "anchor",                 # 이 기록이 앵커 계열임을 스스로 밝힌다
         "n_evaluated": scored,                  # 앵커 채점 문항 = 지표의 실제 분모
@@ -208,6 +280,21 @@ def run_eval(index_dir: str, gt_name: str = "gt_testset_retrieval_450.jsonl") ->
         "chunk_hit@5": round(m.get("hit@5", 0), 4),
         "chunk_n_evaluated": m.get("n_evaluated"),
         "recall@50": round(m.get("macro_recall@50", 0), 4),
+        # Q-Form 모드 비교용 동일 모집단 지표. 전체 hit@k도 위에서 같은 모드를 적용해
+        # 계산하고, 아래 값은 슬롯이 실제 추출된 문항만 따로 떼어 효과를 선명하게 본다.
+        "qform_eval_version": QFORM_EVAL_VERSION,
+        "qform_mode": mode,
+        "qform_scope": scope,
+        "qform_n_total": len(qform_gt),
+        "qform_n_evaluated": qf.get("n_evaluated", 0),
+        "qform_n_missing_span": qf.get("n_missing_span", 0),
+        "qform_hit@1": qf.get("hit@1"),
+        "qform_hit@3": qf.get("hit@3"),
+        "qform_hit@5": qf.get("hit@5"),
+        "qform_hit@10": qf.get("hit@10"),
+        "qform_mrr@10": qf.get("mrr@10"),
+        "qform_expanded_queries": expanded_count,
+        "qform_metadata_queries": metadata_count,
     }
 
 
