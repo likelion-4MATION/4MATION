@@ -39,6 +39,42 @@ FAST_SHARE = 0.28                                   # 조기차단(OOS) 경로 �
 LAT_ASK = LAT_FAST                                  # 되묻기 문구 1콜 — 짧은 생성이라 OOS 실측을 프록시로
 GEN_SHARE = 0.45                                    # 응답시간·비용 중 답변 길이에 비례하는 몫 (가정)
 FIRE_RATE = {"msdr": 0.020, "msdr+dpin": 0.042}     # 큐폼 되묻기 발동률 (450셋 실측)
+QFORM_EVAL_VERSION = 1
+MEASURE_MATCH_KEYS = (
+    "RRF_ALPHA", "RRF_K", "BF_BOOST", "FACET_BOOST", "BF_DOC_CAP", "BF_MODE",
+    "QBF_MSP_MIN", "QFORM_SCOPE", "QFORM_RETRIEVAL_MODE",
+    "CHUNK_SIZE", "OVERLAP", "MIN_CHUNK", "TABLE_KEEP", "TABLE_GAP_MAX",
+)
+
+
+def _measurement_matches_cfg(rec: dict, cfg: dict) -> bool:
+    """실측 당시 검색/Q-Form 설정이 요청 설정과 같은지 확인한다.
+
+    예전 기록은 설정 스냅샷과 Q-Form 평가 버전이 없으므로 새 4모드 비교에 재사용하지
+    않는다. 메타 가중치는 메타 모드에서만 결과에 영향을 주므로 그때만 비교한다.
+    """
+    if rec.get("qform_eval_version") != QFORM_EVAL_VERSION:
+        return False
+    snap = rec.get("cfg") or {}
+    keys = list(MEASURE_MATCH_KEYS)
+    if cfg.get("QFORM_RETRIEVAL_MODE") in {"metadata_soft", "field_value_soft"}:
+        keys.append("QFORM_META_BOOST")
+    return all(key in snap and str(snap.get(key)) == str(cfg.get(key)) for key in keys)
+
+
+def _matching_measurement(cfg: dict, *, current_corpus: bool = False) -> dict | None:
+    """설정이 같은 최신 실측을 찾는다. 필요하면 현재 인덱스 청크 수도 맞춘다."""
+    current_chunks = None
+    if current_corpus:
+        current = corpus()
+        current_chunks = current.get("index_chunks") or current.get("chunks")
+    for rec in settings.measured_history():
+        if not _measurement_matches_cfg(rec, cfg):
+            continue
+        if current_chunks is not None and rec.get("chunks") != current_chunks:
+            continue
+        return rec
+    return None
 
 
 def _measured_at_k(m: dict, k: int) -> dict | None:
@@ -68,16 +104,21 @@ def accuracy_for(cfg: dict, changed: list[str], measured: dict | None = None) ->
     (0.9081, 181청크 시절 상수)를 그대로 돌려줘서 '변경 후' 칸이 코퍼스를 바꿔도 늘 0.9081 로
     굳어 있었다.
     """
-    m = measured if measured is not None else settings.measured()
+    m = measured if measured is not None else _matching_measurement(cfg, current_corpus=True)
     chunk_ax = any(k in changed for k in ("CHUNK_SIZE", "OVERLAP", "TABLE_KEEP"))
     k_ax = "k" in changed
     preset_ax = "preset" in changed
-    axes = sum([chunk_ax, k_ax, preset_ax])
+    qform_ax = any(k in changed for k in
+                   ("QFORM_RETRIEVAL_MODE", "QFORM_META_BOOST", "QFORM_SCOPE"))
+    axes = sum([chunk_ax, k_ax, preset_ax, qform_ax])
 
     if axes == 0:
         got = _measured_at_k(m, cfg.get("k", 5))
         if got:
             return {**got, "src": got["src"] + " · 변경 없음"}
+        if measured is None:
+            return {"value": None, "grade": "unmeasured", "metric": None,
+                    "src": "현재 인덱스와 Q-Form 설정이 일치하는 실측 기록이 없습니다 — 재검증이 필요합니다"}
         return {"value": BASELINE["acc"], "grade": "measured",
                 "metric": "anchor hit@5", "src": "현재 적용 중 (재빌드 실측 기록 없음)"}
     if axes > 1:
@@ -100,6 +141,15 @@ def accuracy_for(cfg: dict, changed: list[str], measured: dict | None = None) ->
                 if v is not None else
                 {"value": None, "grade": "unmeasured", "metric": None,
                  "src": f"k={int(cfg['k'])}는 실측이 없습니다 (러너는 hit@1·3·5·10만 냅니다)"})
+    if qform_ax:
+        prior = _matching_measurement(cfg)
+        got = _measured_at_k(prior, cfg.get("k", 5))
+        if got:
+            return {**got, "src": got["src"] +
+                    f" · Q-Form {cfg.get('QFORM_RETRIEVAL_MODE')} 동일 설정"}
+        return {"value": None, "grade": "unmeasured", "metric": None,
+                "src": (f"Q-Form {cfg.get('QFORM_RETRIEVAL_MODE')} · "
+                        f"{cfg.get('QFORM_SCOPE')} 조합은 아직 평가하지 않았습니다")}
     v = ACC_PRESET.get(cfg.get("preset"))
     return ({"value": v, "grade": "measured", "metric": "anchor hit@5",
              "src": "tune_params_v2 그리드 (TEST 430)"}
@@ -122,7 +172,7 @@ def current_point() -> dict:
     """
     cfg = settings.current()          # pending 이 아니라 override — 실제로 빌드된 조합
     key = f"{int(cfg['CHUNK_SIZE'])}|{int(cfg['OVERLAP'])}|{1 if cfg['TABLE_KEEP'] else 0}"
-    m = settings.measured()
+    m = _matching_measurement(cfg, current_corpus=True) or {}
     c = corpus()
     if m.get("anchor_hit@5") is not None or m.get("hit@5") is not None:
         return {"key": key, "chunks": m.get("chunks") or c.get("chunks"),
@@ -195,13 +245,13 @@ def baseline_of(saved: dict) -> dict:
     재빌드 실측치(`settings.record_measured`)가 있으면 정확도는 그 값을 쓴다 — 추정표보다 우선.
     지표는 저장된 `k` 에 맞춰 `hit@k` 를 쓴다. '변경 후' 칸과 같은 잣대가 되도록.
     """
-    import registry
     ops = _ops(saved)
-    acc = _measured_at_k(settings.measured(), saved.get("k", 5))
+    acc = _measured_at_k(
+        _matching_measurement(saved, current_corpus=True), saved.get("k", 5)
+    )
     if acc is None:
-        changed = [k for k in registry.BY_KEY
-                   if str(saved.get(k)) != str(registry.DEFAULTS.get(k))]
-        acc = accuracy_for(saved, changed, measured={})
+        acc = {"value": None, "grade": "unmeasured", "metric": None,
+               "src": "현재 설정과 인덱스가 일치하는 실측 기록 없음"}
     return {"acc": acc.get("value"), "acc_grade": acc.get("grade"),
             "acc_src": acc.get("src"), "acc_metric": acc.get("metric"), **ops}
 
@@ -260,7 +310,9 @@ def best_of(saved: dict) -> dict:
     비교 잣대는 저장된 `k` 로 맞춘다 — hit@3 과 hit@5 를 섞어 최고를 뽑으면 안 된다.
     """
     k = int(saved.get("k", 5))
-    pts = [_history_point(r, k) for r in settings.measured_history()]
+    records = settings.measured_history()
+    qform_aware = [r for r in records if r.get("qform_eval_version") == QFORM_EVAL_VERSION]
+    pts = [_history_point(r, k) for r in (qform_aware or records)]
     ops_pts = [p for p in pts if p["calls"] is not None]
     ops_pts += [{"at": t["at"], "chunks": None, "acc": None, "acc_metric": None, **_ops(t["cfg"])}
                 for t in _config_timeline(saved)]
@@ -328,8 +380,14 @@ def corpus() -> dict:
     if not lens:
         return {"available": False}
     lens.sort()
+    index_meta = CRAWLER / "data" / "index" / "chunk_meta.jsonl"
+    try:
+        index_chunks = sum(1 for line in index_meta.open(encoding="utf-8") if line.strip())
+    except OSError:
+        index_chunks = None
     return {
         "available": True, "chunks": len(lens), "docs": len(docs),
+        "index_chunks": index_chunks,
         "avg": round(sum(lens) / len(lens)), "median": lens[len(lens) // 2],
         "max": max(lens), "min": min(lens),
         "over_limit": sum(1 for x in lens if x > int(settings.effective()["CHUNK_SIZE"])),
