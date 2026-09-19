@@ -113,7 +113,7 @@ PARAMS = [
     _p("FACET_BOOST", "FACET_BOOST", "float", 0.05, "advanced", "runtime",
        "crawler/rag.py", "질문 유형(구비서류·절차 등) 일치 가산점.", min=0.0, max=0.30, step=0.01, tab=6),
     _p("QFORM_META_BOOST", "QFORM_META_BOOST", "float", 0.05, "advanced", "runtime",
-       "crawler/rag.py", "사용자 Q-Form 슬롯과 청크 자동 메타데이터가 모두 일치할 때의 최대 가산점. 아직 전용 평가 전인 실험값입니다.",
+       "crawler/rag.py", "사용자 Q-Form 슬롯과 청크 자동 메타데이터가 모두 일치할 때의 최대 가산점. 변경 후 재검증하면 Q-Form 대상 성능을 따로 측정합니다.",
        min=0.0, max=0.20, step=0.01, tab=6),
     _p("BF_DOC_CAP", "BF_DOC_CAP", "int", 5, "advanced", "runtime",
        "crawler/rag.py", "한 문서에서 뽑을 최대 청크 수.", min=1, max=10, tab=6),

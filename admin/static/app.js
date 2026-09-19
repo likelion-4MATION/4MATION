@@ -191,8 +191,25 @@ async function paint() {
   const M = r.measured || {};
   $("#resMeta").innerHTML = M["hit@5"] != null
     ? `직전 실측 ${String(M.at).slice(0, 10)} · ${M.chunks ?? "—"}청크${
-        M.n_evaluated ? ` · 앵커 채점 ${M.n_evaluated}문항` : ""}`
+        M.n_evaluated ? ` · 앵커 채점 ${M.n_evaluated}문항` : ""}${
+        M["qform_hit@5"] != null ? ` · Q-Form ${M.qform_n_evaluated ?? 0}문항 ${Number(M["qform_hit@5"]).toFixed(4)}` : ""}`
     : "재빌드 실측 기록 없음 — 왼쪽 [③ 재검증]으로 지금 인덱스를 잴 수 있습니다.";
+  const qMode = fmt("QFORM_RETRIEVAL_MODE", val("QFORM_RETRIEVAL_MODE"));
+  if (M.qform_eval_version === 1 && M["qform_hit@5"] != null) {
+    const sameMode = M.qform_mode === val("QFORM_RETRIEVAL_MODE")
+      && M.qform_scope === val("QFORM_SCOPE");
+    $("#qformEvalNote").className = "note " + (sameMode ? "ok" : "warn");
+    $("#qformEvalNote").innerHTML = sameMode
+      ? `<b>${qMode}</b> 실측 — Q-Form 대상 ${M.qform_n_evaluated ?? 0}문항 · `
+        + `anchor hit@5 <b>${Number(M["qform_hit@5"]).toFixed(4)}</b> · `
+        + `전체 ${Number(M["hit@5"]).toFixed(4)}`
+      : `화면 선택은 <b>${qMode}</b>이지만 직전 실측은 <b>${fmt("QFORM_RETRIEVAL_MODE", M.qform_mode)}</b>입니다. `
+        + `저장 후 [③ 재검증]을 실행해야 비교할 수 있습니다.`;
+  } else {
+    $("#qformEvalNote").className = "note";
+    $("#qformEvalNote").innerHTML = `<b>${qMode}</b>은 아직 Q-Form 전용 평가 기록이 없습니다. `
+      + `저장 후 [③ 재검증]을 실행하면 전체와 Q-Form 대상 성능을 함께 측정합니다.`;
+  }
   $("#accSrc").innerHTML = acc.src
     ? `정확도 근거: <code>${esc(acc.src)}</code>` : "";
   $("#chgNote").innerHTML = note ? `<div class="${cls}">${note}</div>` : "";
@@ -313,6 +330,9 @@ function stageBlock(s) {
     ${s.status === "done" && s.metrics && !s.metrics.error
       ? `<div style="font-size:11px;color:var(--tx3);margin-top:5px">앵커 hit@1 ${s.metrics["hit@1"]}
          · hit@3 ${s.metrics["hit@3"]} · MRR ${s.metrics["mrr@10"]} · ${s.chunks ?? "—"}청크${s.metrics["n_evaluated"] ? ` · 채점 ${s.metrics["n_evaluated"]}문항` : ""}</div>` : ""}
+    ${s.status === "done" && s.metrics && s.metrics["qform_hit@5"] != null
+      ? `<div style="font-size:11px;color:var(--tx3);margin-top:3px">Q-Form ${fmt("QFORM_RETRIEVAL_MODE", s.metrics.qform_mode)}
+         · 대상 ${s.metrics.qform_n_evaluated ?? 0}문항 · hit@5 <b>${Number(s.metrics["qform_hit@5"]).toFixed(4)}</b></div>` : ""}
     ${s.error ? `<div class="note bad" style="margin-top:8px">${esc(s.error)}</div>` : ""}
   </div>`;
 }
