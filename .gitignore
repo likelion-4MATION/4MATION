@@ -104,6 +104,7 @@ chroma_db/
 corpus/
 # local files
 .claude/
+/.cowork/
 backup/
 
 # ===== 관리자 콘솔 런타임 상태 =====
