@@ -5,6 +5,14 @@ RAG 챗봇과 운영용 관리자 콘솔을 제공하는 PoC입니다.
 
 > 기준: `main` · essential 저장소 재구성본 · 2026-08-30 현행화
 
+## 4MATION 2.0 진행 계획
+
+기존 6개 업무를 유지한 채 먼저 본인 확인용 서비스로 배포하고, 라우팅·Q-Form·검색·답변을
+단계적으로 개선해 지인·동료 등 초대한 소수 사용자가 이용하는 서비스로 발전시킵니다.
+작업 브랜치는 `ukkhnn`, 통합 브랜치는 `dev`이며 마일스톤 완료마다 `ukkhnn → dev` PR을 만듭니다.
+목표·완료 조건·PR 절차는 [4MATION 2.0 마일스톤](./docs/current/4MATION_2.0_마일스톤.md)을 봅니다.
+로컬 작업 메모리는 Git에서 제외한 `.cowork/`에서 관리하고, 공유할 결정과 결과는 저장소 문서에 남깁니다.
+
 ## 제공 기능
 
 | 영역 | 현재 구현 |
@@ -108,6 +116,8 @@ python chatbot/verify_qform_multiturn.py
 
 | 알고 싶은 내용 | 문서 |
 |---|---|
+| 2.0 목표·마일스톤·PR 진행 방식 | [4MATION_2.0_마일스톤.md](./docs/current/4MATION_2.0_마일스톤.md) |
+| 에이전트 작업과 로컬 메모리 관리 | [AGENTS.md](./AGENTS.md) |
 | 새 환경 설치 | [SETUP.md](./SETUP.md) |
 | 실행·재빌드·평가·테스트 | [docs/current/RUNBOOK.md](./docs/current/RUNBOOK.md) |
 | 최근 개선 작업 1~5 구현·검증 현황 | [개선작업_구현검증_요약.md](./docs/current/개선작업_구현검증_요약.md) |
