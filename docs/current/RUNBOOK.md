@@ -4,49 +4,24 @@
 
 이 문서는 essential 재구성본에 실제로 존재하는 명령만 다룹니다.
 
-> 기준: `main` · 2026-08-30
-> 설치가 처음이면 [SETUP](../../SETUP.md)을 먼저 봅니다.
+> 기준: `dev` · 2026-10-12
 
 ## 0. 공통 준비
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r crawler/requirements.txt
-python -m pip install -r admin/requirements.txt
-python -m pip install python-dotenv pytest
-test -f .env || cp .env.example .env
-```
-
-Windows에서는 가상환경 생성에 `python`, 활성화에 `.venv\Scripts\Activate.ps1`을 사용합니다.
+처음 설치(가상환경·의존성·`.env`·모델 내려받기)는 [SETUP](../../SETUP.md)을 따릅니다. 이 문서의
+명령은 리포지토리 루트에서 가상환경을 켠 상태(`source .venv/bin/activate`, Windows
+`.venv\Scripts\Activate.ps1`)를 전제로 합니다.
 
 ## 1. 모델 확인
-
-### 임베딩 모델
-
-인덱스를 만들 때 `dragonkue/BGE-m3-ko`를 HuggingFace 캐시에 자동 다운로드합니다. 미리 받으려면:
-
-```bash
-python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('dragonkue/BGE-m3-ko')"
-```
-
-### 업무 라우터
 
 ```bash
 python crawler/router_source.py
 ```
 
-로컬 가중치가 없다면:
-
-```bash
-python scripts/download_router_hf.py --dry-run
-python scripts/download_router_hf.py
-python scripts/download_router_hf.py --verify-sha
-```
-
-라우터가 없어도 검색은 키워드 분류로 폴백합니다. 체크포인트 계약은
-[router_checkpoint.md](./router_checkpoint.md)를 봅니다.
+`로컬 상태: 사용 가능`이면 라우터가 준비된 상태입니다. 라우터 가중치와 임베딩 모델을 받는 방법은
+[SETUP §5](../../SETUP.md#5-라우터-체크포인트), 체크포인트 계약과 SHA-256 전수 검사는
+[router_checkpoint.md](./router_checkpoint.md)를 봅니다. 라우터가 없어도 검색은 키워드 분류로
+폴백합니다.
 
 ## 2. 서비스 실행
 

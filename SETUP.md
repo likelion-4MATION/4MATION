@@ -3,7 +3,7 @@
 새 클론에서 의존성 설치, 모델 준비, 데이터·인덱스 생성, 사용자 챗봇과 관리자 콘솔 실행까지의
 현행 절차입니다. 모든 명령은 별도 표시가 없으면 리포지토리 루트에서 실행합니다.
 
-> 기준: `main` · Python 3.11+ · 2026-08-30
+> 기준: `dev` · Python 3.11+ · 2026-10-12
 
 ## 1. 준비물
 
@@ -22,7 +22,7 @@
 ```bash
 git clone git@github.com:likelion-4MATION/4MATION.git
 cd 4MATION
-git switch main
+git switch dev     # 최신 통합본. main은 2026-08-31 병합 시점
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -33,7 +33,7 @@ Windows PowerShell:
 ```powershell
 git clone git@github.com:likelion-4MATION/4MATION.git
 cd 4MATION
-git switch main
+git switch dev
 
 python -m venv .venv
 .venv\Scripts\Activate.ps1
@@ -131,14 +131,8 @@ Git에는 매니페스트, 181청크 코퍼스, 450문항 질문셋과 GT, FAQ B
 수집은 요청당 1.5초와 지터를 적용하므로 수 분 걸립니다. `build_dataset.py --crawl`은
 수집 → 파싱 → 첨부 다운로드 → 첨부 연결 → 청킹을 수행하고, 다음 명령이 검색 인덱스를 만듭니다.
 
-### 이미 저장된 원문이 있을 때
-
-```bash
-(cd crawler && python build_dataset.py --no-fetch)
-(cd crawler && python pipeline.py --manifest crawl_manifest.csv --use-cache --rebuild)
-```
-
-`--no-fetch`는 첨부 실파일 다운로드를 생략합니다.
+저장된 원문으로 다시 만들기, 단계별 실행, 증분 재수집은
+[RUNBOOK §3](./docs/current/RUNBOOK.md#3-데이터와-인덱스)을 봅니다.
 
 ### 정합성 확인
 
@@ -164,24 +158,8 @@ grep -c "5천만" crawler/data/raw/kdic-www-sp-dpstrprot-ProtSystProtLmts-select
 
 ## 7. 서비스 실행
 
-터미널 1 — 관리자:
-
-```bash
-source .venv/bin/activate
-cd admin
-python -m uvicorn main:app --host 127.0.0.1 --port 8600
-```
-
-터미널 2 — 사용자 챗봇:
-
-```bash
-source .venv/bin/activate
-python -m uvicorn web.main:app --host 127.0.0.1 --port 8501
-```
-
-- 관리자: <http://127.0.0.1:8600>
-- 사용자 챗봇: <http://127.0.0.1:8501>
-- 사용자 API: <http://127.0.0.1:8501/api/docs>
+관리자(포트 8600)와 사용자 챗봇(포트 8501)을 터미널 두 개에서 각각 실행합니다. 명령과 접속
+주소는 [RUNBOOK §2](./docs/current/RUNBOOK.md#2-서비스-실행)를 따릅니다.
 
 관리자와 사용자 챗봇은 별도 프로세스지만 재시작은 필요 없습니다. 사용자 서버(`web/service.py`)가
 생성 요청 직전에 `admin/data/admin_config.json` 교체를 감지해 설정을 다시 적용합니다. 청킹처럼
