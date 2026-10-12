@@ -3,7 +3,7 @@
 예금보험공사(KDIC) 공개 웹사이트의 정보를 수집·정리하고, 6개 업무 범위에서 답하는
 RAG 챗봇과 운영용 관리자 콘솔을 제공하는 PoC입니다.
 
-> 기준: `main` · essential 저장소 재구성본 · 2026-08-30 현행화
+> 기준: `dev` · essential 저장소 재구성본 · 2026-10-12 현행화
 
 ## 제공 기능
 
@@ -14,7 +14,7 @@ RAG 챗봇과 운영용 관리자 콘솔을 제공하는 PoC입니다.
 | 챗봇 | HCX/DeepSeek/Upstage 답변 생성, 출처 표시, 동적 답변 검증 게이트, 절 단위 처리, Q-Form 되묻기·슬롯 기억·검색 조건 반영 |
 | OOS | 오류 신고, 검증된 타기관 안내, 일상 대화, 원거리 소관 밖, 유선 상담 안내 |
 | 사용자 웹 | FastAPI API + 빌드 과정 없는 HTML/CSS/JavaScript UI |
-| 관리자 | 검색·생성·Q-Form 설정, 재빌드 작업, 첨부 관리, OOS 안내처와 오류 신고함 |
+| 관리자 | 검색·생성·Q-Form 설정, 최신성 가드, 재빌드·재검증 작업(Q-Form 검색 반영 측정 포함), 첨부·업무 외 링크 관리, OOS 안내처와 오류 신고함 |
 
 ## 현재 저장소 구조
 
@@ -30,16 +30,20 @@ RAG 챗봇과 운영용 관리자 콘솔을 제공하는 PoC입니다.
 ├── chatbot/                  답변 생성·Q-Form·OOS 오케스트레이션
 ├── web/                      사용자 FastAPI 서버와 정적 UI
 ├── admin/                    관리자 FastAPI 서버와 정적 UI
-├── tests/                    OOS·웹 API 회귀 테스트
+│   └── data/                 공유 초기값(설정·첨부 오버레이·OOS DB) + 로컬 런타임 상태
+├── tests/                    pytest 회귀 테스트(OOS·웹·Q-Form·답변 게이트·관리자)
 ├── scripts/                  라우터 체크포인트 다운로드
 ├── router_moai_embedding_model/
 │   └── ...                   설정·토크나이저는 Git, 2.38GB 가중치는 로컬 전용
-└── docs/current/             현행 설계·운영 문서
+└── docs/
+    ├── current/              현행 설계·운영 문서(정본)
+    └── records/              기록 — 08-13~08-20 회의록, 08-30 구현검증 보고
 ```
 
-과거 저장소에 있던 `records/`, `plans/`, `superseded/`, `archive/`, `exp/`, `logs/`는
-essential 재구성본에 포함하지 않습니다. 현재 문서는 이 저장소에 실제로 남은 코드와 데이터만
-정본으로 취급합니다.
+과거 저장소(2026-07-10~08-27 전체 이력)에 있던 `plans/`, `superseded/`, `archive/`, `exp/`,
+`logs/`와 08-12 이전 회의록·측정 기록은 essential 재구성본에 포함하지 않습니다.
+`docs/current/`는 이 저장소에 실제로 남은 코드와 데이터만 정본으로 취급하고, `docs/records/`는
+당시 사실을 남긴 기록이라 수정하지 않습니다. 기록 속 파일 경로는 과거 저장소 기준일 수 있습니다.
 
 ## 빠른 실행
 
@@ -82,6 +86,11 @@ Git에 포함된 현재 데이터는 다음과 같습니다.
 `crawler/data/index/`, `raw/`, `meta/`, `parsed/`, `files/`는 로컬 재생성 산출물이라 Git에
 포함되지 않습니다. 로컬 인덱스의 청크 수는 반드시 `chunks.jsonl`과 맞아야 합니다.
 
+관리자 상태 중 `admin/data/admin_config.json`(설정·실측 이력), `attachments.json`(첨부 오버레이·
+업무 외 링크), `oos.sqlite3`(OOS 안내처·오류 신고)는 2026-09-01부터 팀 공유 초기값으로 Git에
+포함돼 있습니다. 실행 중 바뀐 내용을 다룰 때의 주의점은
+[RUNBOOK §9](./docs/current/RUNBOOK.md#9-알려진-제약)를 봅니다.
+
 ```bash
 wc -l crawler/data/chunks.jsonl crawler/data/index/chunk_meta.jsonl
 ```
@@ -91,18 +100,11 @@ wc -l crawler/data/chunks.jsonl crawler/data/index/chunk_meta.jsonl
 ## 검증
 
 ```bash
-python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py tests/test_qform_boost.py tests/test_answer_gate.py tests/test_context_k.py tests/test_model_selection.py -q
-node --check web/static/app.js
-python chatbot/verify_qform_e2e.py
-python chatbot/verify_qform_integration.py
-python chatbot/verify_qform_search_attachments.py
-python chatbot/verify_qform_multiturn.py
+python -m pytest tests -q
 ```
 
-2026-08-30 기준 Python 테스트는 47개가 통과합니다. 답변 검색 청크 수와 HCX/DeepSeek/Upstage
-챗봇 모델 선택은 관리자 콘솔에서 바꾸면 다음 생성 요청부터 반영됩니다.
-`verify_qform_search_attachments.py`는
-실제 로컬 검색 인덱스를 사용하되 외부 LLM API는 호출하지 않습니다.
+2026-10-12 기준 65개가 통과합니다. 수집 가드·UI 문법·Q-Form 검증 스크립트를 포함한 전체 명령과
+파일별 기대값은 [RUNBOOK §7](./docs/current/RUNBOOK.md#7-테스트)을 정본으로 사용합니다.
 
 ## 문서 지도
 
@@ -110,7 +112,7 @@ python chatbot/verify_qform_multiturn.py
 |---|---|
 | 새 환경 설치 | [SETUP.md](./SETUP.md) |
 | 실행·재빌드·평가·테스트 | [docs/current/RUNBOOK.md](./docs/current/RUNBOOK.md) |
-| 최근 개선 작업 1~5 구현·검증 현황 | [개선작업_구현검증_요약.md](./docs/current/개선작업_구현검증_요약.md) |
+| 08-30 개선 작업 1~5 구현·검증 기록 | [개선작업_구현검증_요약_20260830.md](./docs/records/개선작업_구현검증_요약_20260830.md) |
 | 크롤러 입력·출력 | [crawler/README.md](./crawler/README.md) |
 | 사용자 웹 API | [web/README.md](./web/README.md) |
 | 관리자 콘솔 | [admin/README.md](./admin/README.md) |
@@ -119,6 +121,7 @@ python chatbot/verify_qform_multiturn.py
 | 라우터 체크포인트 | [router_checkpoint.md](./docs/current/router_checkpoint.md) |
 | OOS 운영 | [OOS_구현_운영가이드.md](./docs/current/OOS_구현_운영가이드.md) |
 | 관리자 상세 사양 | [관리자콘솔_사양서.md](./docs/current/관리자콘솔_사양서.md) |
+| 회의록(08-13~08-20) | [docs/records/meeting/](./docs/records/meeting/) |
 
 ## 기술 스택
 

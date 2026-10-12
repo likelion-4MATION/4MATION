@@ -4,49 +4,24 @@
 
 이 문서는 essential 재구성본에 실제로 존재하는 명령만 다룹니다.
 
-> 기준: `main` · 2026-08-30
-> 설치가 처음이면 [SETUP](../../SETUP.md)을 먼저 봅니다.
+> 기준: `dev` · 2026-10-12
 
 ## 0. 공통 준비
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r crawler/requirements.txt
-python -m pip install -r admin/requirements.txt
-python -m pip install python-dotenv pytest
-test -f .env || cp .env.example .env
-```
-
-Windows에서는 가상환경 생성에 `python`, 활성화에 `.venv\Scripts\Activate.ps1`을 사용합니다.
+처음 설치(가상환경·의존성·`.env`·모델 내려받기)는 [SETUP](../../SETUP.md)을 따릅니다. 이 문서의
+명령은 리포지토리 루트에서 가상환경을 켠 상태(`source .venv/bin/activate`, Windows
+`.venv\Scripts\Activate.ps1`)를 전제로 합니다.
 
 ## 1. 모델 확인
-
-### 임베딩 모델
-
-인덱스를 만들 때 `dragonkue/BGE-m3-ko`를 HuggingFace 캐시에 자동 다운로드합니다. 미리 받으려면:
-
-```bash
-python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('dragonkue/BGE-m3-ko')"
-```
-
-### 업무 라우터
 
 ```bash
 python crawler/router_source.py
 ```
 
-로컬 가중치가 없다면:
-
-```bash
-python scripts/download_router_hf.py --dry-run
-python scripts/download_router_hf.py
-python scripts/download_router_hf.py --verify-sha
-```
-
-라우터가 없어도 검색은 키워드 분류로 폴백합니다. 체크포인트 계약은
-[router_checkpoint.md](./router_checkpoint.md)를 봅니다.
+`로컬 상태: 사용 가능`이면 라우터가 준비된 상태입니다. 라우터 가중치와 임베딩 모델을 받는 방법은
+[SETUP §5](../../SETUP.md#5-라우터-체크포인트), 체크포인트 계약과 SHA-256 전수 검사는
+[router_checkpoint.md](./router_checkpoint.md)를 봅니다. 라우터가 없어도 검색은 키워드 분류로
+폴백합니다.
 
 ## 2. 서비스 실행
 
@@ -222,10 +197,13 @@ python runner.py --mode files --config '{}'
 
 ## 7. 테스트
 
+테스트 명령과 기대값은 이 절이 정본입니다. README·SETUP·각 가이드는 이 절을 링크합니다.
+
 리포지토리 루트에서:
 
 ```bash
-python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py tests/test_qform_boost.py tests/test_answer_gate.py tests/test_context_k.py tests/test_model_selection.py -q
+python -m pytest tests -q
+(cd crawler && python tests/test_guards.py)
 node --check web/static/app.js
 node --check admin/static/app.js
 python chatbot/verify_qform_e2e.py
@@ -234,18 +212,38 @@ python chatbot/verify_qform_search_attachments.py
 python chatbot/verify_qform_multiturn.py
 ```
 
-2026-08-30 기준:
+`crawler/tests/test_guards.py`는 pytest 테스트 함수가 없는 스크립트형 수집 가드 검사입니다.
+pytest 묶음에 넣어도 수집되지 않으므로 위처럼 `crawler/`에서 따로 실행합니다(네트워크 없음).
 
-- Python: 47 passed
+### pytest 묶음
+
+2026-10-12 실측 **65 passed**:
+
+| 파일 | 테스트 | 범위 |
+|---|---:|---|
+| `tests/test_oos.py` | 13 | OOS 정책·안내처 게시 검증·오류 신고 마스킹 |
+| `tests/test_qform_boost.py` | 12 | Q-Form 검색 확장·메타데이터 가산·원문/검색문 분리 |
+| `tests/test_answer_gate.py` | 10 | 답변 검증 게이트 경고·재생성·차단과 관리자 런타임 주입 |
+| `tests/test_admin_qform.py` | 9 | 관리자 재검증·재청킹의 Q-Form 경로 연결 |
+| `tests/test_web_api.py` | 8 | 사용자 웹 API·보안 헤더·첨부 경로 |
+| `tests/test_model_selection.py` | 6 | HCX/DeepSeek/Upstage 전환·모델명 동기화 |
+| `tests/test_freshness_guards.py` | 4 | 최신성 가드 답변 배선 |
+| `tests/test_context_k.py` | 3 | 검색 문맥 수 기본 5청크·재정의 |
+
+`test_oos.py`·`test_qform_boost.py`를 실행하면 Git이 추적하는 `admin/data/oos.sqlite3*`가
+변경으로 보일 수 있습니다. 데이터 변경이 아니라 SQLite WAL 체크포인트입니다.
+[§9 알려진 제약](#9-알려진-제약)을 봅니다.
+
+### 검증 스크립트
+
+2026-08-30 통합 검증 기준(외부 LLM 0콜):
+
 - 사용자·관리자 UI JavaScript 문법: 통과
 - Q-Form E2E: 104조합 통과
 - Q-Form 통합: 전 시나리오 통과
-- Q-Form 실검색 첨부 반환: 실제 Searcher → chain → 첨부 실파일 통과(외부 LLM 0콜)
+- Q-Form 실검색 첨부 반환: 실제 Searcher → chain → 첨부 실파일 통과
 - Q-Form 검색 조건: `field: value` 확장·원문 생성 분리·기본 ON 통과
 - Q-Form 멀티턴: 24/24 통과
-- 답변 검증 게이트: 경고·재생성·차단·비활성화 및 관리자 런타임 주입 통과
-- 검색 문맥 수: 기본 5청크·명시적 재정의·관리자 다음 질의 반영 통과
-- 챗봇 모델: HCX/DeepSeek/Upstage 전환·모델명 동기화·관리자 다음 질의 반영 통과
 
 ## 8. OOS 운영 확인
 
@@ -268,9 +266,17 @@ OOS 안내처는 게시·활성·링크 정상 상태인 행만 사용자에게 
   단독 라우터 추론의 `exit 139`를 막기 위해 PyTorch CPU 스레드는 기본 1개입니다. 메모리
   여유가 충분한 서버에서만 `RAG_TORCH_THREADS=2`처럼 명시적으로 올립니다.
 - 라우터 MSP는 체계적으로 과신되어 OOS 판정 신호로 쓰지 않습니다.
+- HCX 라이브 API는 `temperature=0`을 HTTP 400으로 거부하지만 관리자 허용 범위는 `0~1`입니다.
+  HCX를 쓸 때는 0보다 큰 값(기본 `0.2`)을 유지합니다.
 - 보호한도 원문 본문은 `1억원`이지만 같은 페이지의 보험사고 각주 한 문장에는 공식 사이트가
   아직 `5천만원`을 노출합니다. 크롤러에서 임의 교정하지 않고 원문 그대로 보존합니다.
 - 관리자 최신성 가드는 승인·기간·업무·키워드가 일치하면 답변 생성 프롬프트와 수치 검증에 함께 적용됩니다.
-- `data/index/`와 관리자 런타임 DB·설정은 Git 비추적이므로 새 환경에서 다시 생성해야 합니다.
+- `crawler/data/index/`는 Git 비추적이므로 새 환경에서 다시 생성해야 합니다.
+- `admin/data/`의 `admin_config.json`·`attachments.json`·`oos.sqlite3`(`-wal`·`-shm` 포함)는
+  2026-09-01부터 팀 공유 초기값으로 Git에 추적됩니다. `.gitignore`의 `admin/data/*` 규칙보다
+  추적이 우선합니다. 업로드·백업·잡 기록은 계속 Git 밖에 둡니다.
+- OOS DB는 WAL 모드라 관리자·사용자 서버나 테스트가 DB를 열기만 해도 `-wal` 내용이 본 파일로
+  합쳐져 `git status`에 변경으로 보입니다. 공유할 운영 데이터 변경이 아니라면
+  `git restore admin/data/`로 되돌리고 커밋하지 않습니다.
 - essential 재구성 전에 존재하던 실험·튜닝·평가 보조 스크립트는 현재 RUNBOOK의 실행 계약이
   아닙니다.

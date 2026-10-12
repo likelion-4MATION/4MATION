@@ -2,7 +2,7 @@
 
 # OOS 구현·운영 가이드
 
-> 기준: 2026-08-30 · 코드: `chatbot/orchestrator.py`, `chatbot/oos_policy.py`,
+> 기준: 2026-10-12 · 코드: `chatbot/orchestrator.py`, `chatbot/oos_policy.py`,
 > `admin/oos_store.py`
 
 ## 적용 범위
@@ -63,6 +63,10 @@
 초기 데이터에는 실제 기관명·전화번호를 임의로 넣지 않습니다. 관리자가 공식 근거로 확인한 뒤
 게시해야 사용자에게 노출됩니다.
 
+Git에 포함된 `admin/data/oos.sqlite3`(2026-09-01 커밋)에는 이 절차로 게시한 타기관 안내처
+2건(HUG 전세보증금반환보증, 금융감독원 분쟁조정·민원)이 들어 있고 유선 상담 정보는 비어
+있습니다. 이 파일을 다룰 때의 주의점은 [RUNBOOK §9](./RUNBOOK.md#9-알려진-제약)를 봅니다.
+
 ## 오류 신고
 
 오류 신고는 사용자 화면의 신고 액션 또는 자연어 오류 신호에서 생성됩니다.
@@ -78,18 +82,7 @@
 
 ## 실행
 
-```bash
-# 터미널 1
-source .venv/bin/activate
-cd admin
-python -m uvicorn main:app --host 127.0.0.1 --port 8600
-```
-
-```bash
-# 터미널 2 — 리포지토리 루트
-source .venv/bin/activate
-python -m uvicorn web.main:app --host 127.0.0.1 --port 8501
-```
+관리자와 사용자 서버 실행은 [RUNBOOK §2](./RUNBOOK.md#2-서비스-실행)를 따릅니다.
 
 ## 운영 점검
 
@@ -101,13 +94,7 @@ python -m uvicorn web.main:app --host 127.0.0.1 --port 8501
 6. 사용자 화면 신고와 자연어 오류 신고를 각각 생성합니다.
 7. 신고함에서 마스킹·검색 근거·라우팅 기록·삭제 시각을 확인합니다.
 
-API 확인:
-
-```bash
-curl -fsS http://127.0.0.1:8600/api/oos/schema
-curl -fsS http://127.0.0.1:8600/api/oos/referrals
-curl -fsS http://127.0.0.1:8600/api/oos/reports
-```
+API 생존 확인 명령은 [RUNBOOK §8](./RUNBOOK.md#8-oos-운영-확인)에 있습니다.
 
 ## 테스트
 
@@ -115,7 +102,7 @@ curl -fsS http://127.0.0.1:8600/api/oos/reports
 python -m pytest tests/test_oos.py -q
 ```
 
-2026-08-30 통합 묶음에서 OOS·가드·웹 API를 포함한 Python 테스트 21개가 통과했습니다.
+OOS 회귀 테스트는 13개입니다. 전체 묶음과 기대값은 [RUNBOOK §7](./RUNBOOK.md#7-테스트)을 봅니다.
 
 ## 알려진 경계
 
