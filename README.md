@@ -3,7 +3,7 @@
 예금보험공사(KDIC) 공개 웹사이트의 정보를 수집·정리하고, 6개 업무 범위에서 답하는
 RAG 챗봇과 운영용 관리자 콘솔을 제공하는 PoC입니다.
 
-> 기준: `main` · essential 저장소 재구성본 · 2026-08-30 현행화
+> 기준: `dev` · essential 저장소 재구성본 · 2026-10-12 현행화
 
 ## 제공 기능
 
@@ -14,7 +14,7 @@ RAG 챗봇과 운영용 관리자 콘솔을 제공하는 PoC입니다.
 | 챗봇 | HCX/DeepSeek/Upstage 답변 생성, 출처 표시, 동적 답변 검증 게이트, 절 단위 처리, Q-Form 되묻기·슬롯 기억·검색 조건 반영 |
 | OOS | 오류 신고, 검증된 타기관 안내, 일상 대화, 원거리 소관 밖, 유선 상담 안내 |
 | 사용자 웹 | FastAPI API + 빌드 과정 없는 HTML/CSS/JavaScript UI |
-| 관리자 | 검색·생성·Q-Form 설정, 재빌드 작업, 첨부 관리, OOS 안내처와 오류 신고함 |
+| 관리자 | 검색·생성·Q-Form 설정, 최신성 가드, 재빌드·재검증 작업(Q-Form 검색 반영 측정 포함), 첨부·업무 외 링크 관리, OOS 안내처와 오류 신고함 |
 
 ## 현재 저장소 구조
 
@@ -30,16 +30,20 @@ RAG 챗봇과 운영용 관리자 콘솔을 제공하는 PoC입니다.
 ├── chatbot/                  답변 생성·Q-Form·OOS 오케스트레이션
 ├── web/                      사용자 FastAPI 서버와 정적 UI
 ├── admin/                    관리자 FastAPI 서버와 정적 UI
-├── tests/                    OOS·웹 API 회귀 테스트
+│   └── data/                 공유 초기값(설정·첨부 오버레이·OOS DB) + 로컬 런타임 상태
+├── tests/                    pytest 회귀 테스트(OOS·웹·Q-Form·답변 게이트·관리자)
 ├── scripts/                  라우터 체크포인트 다운로드
 ├── router_moai_embedding_model/
 │   └── ...                   설정·토크나이저는 Git, 2.38GB 가중치는 로컬 전용
-└── docs/current/             현행 설계·운영 문서
+└── docs/
+    ├── current/              현행 설계·운영 문서(정본)
+    └── records/              기록 — 08-13~08-20 회의록, 08-30 구현검증 보고
 ```
 
-과거 저장소에 있던 `records/`, `plans/`, `superseded/`, `archive/`, `exp/`, `logs/`는
-essential 재구성본에 포함하지 않습니다. 현재 문서는 이 저장소에 실제로 남은 코드와 데이터만
-정본으로 취급합니다.
+과거 저장소(2026-07-10~08-27 전체 이력)에 있던 `plans/`, `superseded/`, `archive/`, `exp/`,
+`logs/`와 08-12 이전 회의록·측정 기록은 essential 재구성본에 포함하지 않습니다.
+`docs/current/`는 이 저장소에 실제로 남은 코드와 데이터만 정본으로 취급하고, `docs/records/`는
+당시 사실을 남긴 기록이라 수정하지 않습니다. 기록 속 파일 경로는 과거 저장소 기준일 수 있습니다.
 
 ## 빠른 실행
 
@@ -117,6 +121,7 @@ python -m pytest tests -q
 | 라우터 체크포인트 | [router_checkpoint.md](./docs/current/router_checkpoint.md) |
 | OOS 운영 | [OOS_구현_운영가이드.md](./docs/current/OOS_구현_운영가이드.md) |
 | 관리자 상세 사양 | [관리자콘솔_사양서.md](./docs/current/관리자콘솔_사양서.md) |
+| 회의록(08-13~08-20) | [docs/records/meeting/](./docs/records/meeting/) |
 
 ## 기술 스택
 
