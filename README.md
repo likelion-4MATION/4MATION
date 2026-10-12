@@ -108,7 +108,7 @@ python -m pytest tests -q
 |---|---|
 | 새 환경 설치 | [SETUP.md](./SETUP.md) |
 | 실행·재빌드·평가·테스트 | [docs/current/RUNBOOK.md](./docs/current/RUNBOOK.md) |
-| 최근 개선 작업 1~5 구현·검증 현황 | [개선작업_구현검증_요약.md](./docs/current/개선작업_구현검증_요약.md) |
+| 08-30 개선 작업 1~5 구현·검증 기록 | [개선작업_구현검증_요약_20260830.md](./docs/records/개선작업_구현검증_요약_20260830.md) |
 | 크롤러 입력·출력 | [crawler/README.md](./crawler/README.md) |
 | 사용자 웹 API | [web/README.md](./web/README.md) |
 | 관리자 콘솔 | [admin/README.md](./admin/README.md) |
