@@ -115,7 +115,7 @@ curl -fsS http://127.0.0.1:8600/api/oos/reports
 python -m pytest tests/test_oos.py -q
 ```
 
-2026-08-30 통합 묶음에서 OOS·가드·웹 API를 포함한 Python 테스트 21개가 통과했습니다.
+OOS 회귀 테스트는 13개입니다. 전체 묶음과 기대값은 [RUNBOOK §7](./RUNBOOK.md#7-테스트)을 봅니다.
 
 ## 알려진 경계
 

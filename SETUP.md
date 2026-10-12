@@ -188,15 +188,14 @@ python -m uvicorn web.main:app --host 127.0.0.1 --port 8501
 
 ## 8. 검증
 
+설치가 끝났는지는 네트워크 없이 도는 회귀 테스트로 확인합니다.
+
 ```bash
-python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py -q
-node --check web/static/app.js
-python chatbot/verify_qform_e2e.py
-python chatbot/verify_qform_integration.py
-python chatbot/verify_qform_multiturn.py
+python -m pytest tests -q
 ```
 
-2026-08-30 기준 Python 테스트 21개가 통과합니다.
+2026-10-12 기준 65개가 통과합니다. 전체 검증 명령과 기대값은
+[RUNBOOK §7](./docs/current/RUNBOOK.md#7-테스트)을 봅니다.
 
 검색 평가는 인덱스와 모델을 로드하므로 메모리가 충분한 환경에서 실행합니다.
 

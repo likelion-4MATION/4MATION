@@ -222,10 +222,13 @@ python runner.py --mode files --config '{}'
 
 ## 7. 테스트
 
+테스트 명령과 기대값은 이 절이 정본입니다. README·SETUP·각 가이드는 이 절을 링크합니다.
+
 리포지토리 루트에서:
 
 ```bash
-python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py tests/test_qform_boost.py tests/test_answer_gate.py tests/test_context_k.py tests/test_model_selection.py -q
+python -m pytest tests -q
+(cd crawler && python tests/test_guards.py)
 node --check web/static/app.js
 node --check admin/static/app.js
 python chatbot/verify_qform_e2e.py
@@ -234,18 +237,38 @@ python chatbot/verify_qform_search_attachments.py
 python chatbot/verify_qform_multiturn.py
 ```
 
-2026-08-30 기준:
+`crawler/tests/test_guards.py`는 pytest 테스트 함수가 없는 스크립트형 수집 가드 검사입니다.
+pytest 묶음에 넣어도 수집되지 않으므로 위처럼 `crawler/`에서 따로 실행합니다(네트워크 없음).
 
-- Python: 47 passed
+### pytest 묶음
+
+2026-10-12 실측 **65 passed**:
+
+| 파일 | 테스트 | 범위 |
+|---|---:|---|
+| `tests/test_oos.py` | 13 | OOS 정책·안내처 게시 검증·오류 신고 마스킹 |
+| `tests/test_qform_boost.py` | 12 | Q-Form 검색 확장·메타데이터 가산·원문/검색문 분리 |
+| `tests/test_answer_gate.py` | 10 | 답변 검증 게이트 경고·재생성·차단과 관리자 런타임 주입 |
+| `tests/test_admin_qform.py` | 9 | 관리자 재검증·재청킹의 Q-Form 경로 연결 |
+| `tests/test_web_api.py` | 8 | 사용자 웹 API·보안 헤더·첨부 경로 |
+| `tests/test_model_selection.py` | 6 | HCX/DeepSeek/Upstage 전환·모델명 동기화 |
+| `tests/test_freshness_guards.py` | 4 | 최신성 가드 답변 배선 |
+| `tests/test_context_k.py` | 3 | 검색 문맥 수 기본 5청크·재정의 |
+
+`test_oos.py`·`test_qform_boost.py`를 실행하면 Git이 추적하는 `admin/data/oos.sqlite3*`가
+변경으로 보일 수 있습니다. 데이터 변경이 아니라 SQLite WAL 체크포인트입니다.
+[§9 알려진 제약](#9-알려진-제약)을 봅니다.
+
+### 검증 스크립트
+
+2026-08-30 통합 검증 기준(외부 LLM 0콜):
+
 - 사용자·관리자 UI JavaScript 문법: 통과
 - Q-Form E2E: 104조합 통과
 - Q-Form 통합: 전 시나리오 통과
-- Q-Form 실검색 첨부 반환: 실제 Searcher → chain → 첨부 실파일 통과(외부 LLM 0콜)
+- Q-Form 실검색 첨부 반환: 실제 Searcher → chain → 첨부 실파일 통과
 - Q-Form 검색 조건: `field: value` 확장·원문 생성 분리·기본 ON 통과
 - Q-Form 멀티턴: 24/24 통과
-- 답변 검증 게이트: 경고·재생성·차단·비활성화 및 관리자 런타임 주입 통과
-- 검색 문맥 수: 기본 5청크·명시적 재정의·관리자 다음 질의 반영 통과
-- 챗봇 모델: HCX/DeepSeek/Upstage 전환·모델명 동기화·관리자 다음 질의 반영 통과
 
 ## 8. OOS 운영 확인
 

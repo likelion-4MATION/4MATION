@@ -91,18 +91,11 @@ wc -l crawler/data/chunks.jsonl crawler/data/index/chunk_meta.jsonl
 ## 검증
 
 ```bash
-python -m pytest tests/test_oos.py crawler/tests/test_guards.py tests/test_web_api.py tests/test_qform_boost.py tests/test_answer_gate.py tests/test_context_k.py tests/test_model_selection.py -q
-node --check web/static/app.js
-python chatbot/verify_qform_e2e.py
-python chatbot/verify_qform_integration.py
-python chatbot/verify_qform_search_attachments.py
-python chatbot/verify_qform_multiturn.py
+python -m pytest tests -q
 ```
 
-2026-08-30 기준 Python 테스트는 47개가 통과합니다. 답변 검색 청크 수와 HCX/DeepSeek/Upstage
-챗봇 모델 선택은 관리자 콘솔에서 바꾸면 다음 생성 요청부터 반영됩니다.
-`verify_qform_search_attachments.py`는
-실제 로컬 검색 인덱스를 사용하되 외부 LLM API는 호출하지 않습니다.
+2026-10-12 기준 65개가 통과합니다. 수집 가드·UI 문법·Q-Form 검증 스크립트를 포함한 전체 명령과
+파일별 기대값은 [RUNBOOK §7](./docs/current/RUNBOOK.md#7-테스트)을 정본으로 사용합니다.
 
 ## 문서 지도
 
