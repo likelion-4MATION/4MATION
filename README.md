@@ -82,6 +82,11 @@ Git에 포함된 현재 데이터는 다음과 같습니다.
 `crawler/data/index/`, `raw/`, `meta/`, `parsed/`, `files/`는 로컬 재생성 산출물이라 Git에
 포함되지 않습니다. 로컬 인덱스의 청크 수는 반드시 `chunks.jsonl`과 맞아야 합니다.
 
+관리자 상태 중 `admin/data/admin_config.json`(설정·실측 이력), `attachments.json`(첨부 오버레이·
+업무 외 링크), `oos.sqlite3`(OOS 안내처·오류 신고)는 2026-09-01부터 팀 공유 초기값으로 Git에
+포함돼 있습니다. 실행 중 바뀐 내용을 다룰 때의 주의점은
+[RUNBOOK §9](./docs/current/RUNBOOK.md#9-알려진-제약)를 봅니다.
+
 ```bash
 wc -l crawler/data/chunks.jsonl crawler/data/index/chunk_meta.jsonl
 ```

@@ -108,6 +108,8 @@ backup/
 
 # ===== 관리자 콘솔 런타임 상태 =====
 # 설정 오버라이드·첨부 오버레이·잡 기록·업로드·백업은 기기별 상태다. 코드만 커밋한다.
+# 예외: admin_config.json·attachments.json·oos.sqlite3(-wal/-shm 포함)는 2026-09-01 팀 공유
+# 초기값(OOS 업무 외 링크 레지스트리)으로 커밋돼 이 규칙과 무관하게 추적된다 — RUNBOOK §9.
 admin/data/*
 !admin/data/.gitkeep
 # HCX/DeepSeek 생성 답변·OpenCode 심사 배치(키·응답 포함) — 실험 시 재생성

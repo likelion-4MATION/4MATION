@@ -39,7 +39,9 @@ export KDIC_REPO=/path/to/repository
 | `oos_store.py` | OOS 안내처·유선상담·오류 신고 SQLite 저장소 |
 | `static/` | 관리자 HTML/CSS/JavaScript UI |
 
-런타임 상태는 `admin/data/`에 저장되며 Git에 포함되지 않습니다.
+런타임 상태는 `admin/data/`에 저장됩니다. 이 중 `admin_config.json`·`attachments.json`·
+`oos.sqlite3`는 팀 공유 초기값으로 Git에 추적되고, 업로드·백업·잡 기록은 추적하지 않습니다.
+실행 중 생기는 변경을 다루는 방법은 [RUNBOOK §9](../docs/current/RUNBOOK.md#9-알려진-제약)를 봅니다.
 
 ## 화면
 
