@@ -217,7 +217,9 @@ pytest 묶음에 넣어도 수집되지 않으므로 위처럼 `crawler/`에서 
 
 ### pytest 묶음
 
-2026-10-12 실측 **65 passed**:
+2026-11-07 병합 검증 실측 **68 passed**. 소스와 공개 테스트 자산을 임시 디렉토리에 복사해
+실행했으며, 실제 `.env`·관리자 데이터·모델은 제외하고 외부 통신과 모델 로딩을 차단했습니다.
+실서비스 기동·실제 모델 검색·외부 LLM 호출 검증은 포함하지 않습니다.
 
 | 파일 | 테스트 | 범위 |
 |---|---:|---|
@@ -225,6 +227,7 @@ pytest 묶음에 넣어도 수집되지 않으므로 위처럼 `crawler/`에서 
 | `tests/test_qform_boost.py` | 12 | Q-Form 검색 확장·메타데이터 가산·원문/검색문 분리 |
 | `tests/test_answer_gate.py` | 10 | 답변 검증 게이트 경고·재생성·차단과 관리자 런타임 주입 |
 | `tests/test_admin_qform.py` | 9 | 관리자 재검증·재청킹의 Q-Form 경로 연결 |
+| `tests/test_admin_qform_eval.py` | 3 | 설정별 실측 선택·예측 업무 사용·4개 모드의 동일 평가 대상 |
 | `tests/test_web_api.py` | 8 | 사용자 웹 API·보안 헤더·첨부 경로 |
 | `tests/test_model_selection.py` | 6 | HCX/DeepSeek/Upstage 전환·모델명 동기화 |
 | `tests/test_freshness_guards.py` | 4 | 최신성 가드 답변 배선 |

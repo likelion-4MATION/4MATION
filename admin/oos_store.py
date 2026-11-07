@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import json
+import os
 import pathlib
 import re
 import sqlite3
@@ -43,7 +44,10 @@ def _connect() -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys=ON")
     con.execute("PRAGMA busy_timeout=10000")
-    con.execute("PRAGMA journal_mode=WAL")
+    journal_mode = os.environ.get("KDIC_SQLITE_JOURNAL_MODE", "WAL").upper()
+    if journal_mode not in {"DELETE", "TRUNCATE", "PERSIST", "MEMORY", "WAL", "OFF"}:
+        journal_mode = "WAL"
+    con.execute(f"PRAGMA journal_mode={journal_mode}")
     return con
 
 

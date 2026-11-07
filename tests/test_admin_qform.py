@@ -40,7 +40,7 @@ def test_qform_query_is_a_no_op_without_slots():
         assert runner.qform_query(QUESTION, {}, mode) == (QUESTION, {})
 
 
-def test_qform_slots_use_the_evaluation_business_function_not_the_router():
+def test_qform_slots_respect_the_supplied_business_function():
     slots = runner.qform_slots(QUESTION, "착오송금 반환 신청", "msdr")
     assert slots == EXTRACTED                        # 못 잡은 슬롯은 키째 담지 않는다
     # 스코프 밖 업무는 슬롯을 만들지 않는다 — 착오송금 어휘가 그대로 있어도 마찬가지다.
@@ -105,8 +105,9 @@ def test_dashboard_verdict_is_the_wiring_not_the_setting(tmp_path, monkeypatch):
     assert verdict("off", 0.05, tagged)["effective"] is False
 
 
-def test_runner_step_name_matches_the_step_list_jobs_renders(tmp_path, capsys):
+def test_runner_step_name_matches_the_step_list_jobs_renders(tmp_path, capsys, monkeypatch):
     """러너가 내보내는 `__STEP__` 문자열과 콘솔 단계 목록은 한 글자도 달라지면 안 된다."""
+    monkeypatch.setattr(runner, "qform_settings", lambda: dict(runner.QFORM_OFF))
     out: dict = {}
     runner.check_qform(str(tmp_path), out)
     assert f"__STEP__ {jobs.QF}" in capsys.readouterr().out
@@ -122,7 +123,7 @@ class StubSearcher:
         self.calls = []
 
     def search(self, query, k=5, mode="hybrid", bf_override=None, qform=None):
-        self.calls.append({"query": query, "qform": qform})
+        self.calls.append({"query": query, "qform": qform, "bf_override": bf_override})
         order = ["c1", "c2"] if qform else ["c2", "c1"]
         return [{"chunk_id": c, "_qform_boost": 0.05 if (qform and c == "c1") else 0.0}
                 for c in order]
@@ -146,7 +147,9 @@ def _eval_fixture(tmp_path, monkeypatch):
     searcher = StubSearcher()
     monkeypatch.setattr(runner, "CRAWLER", tmp_path)
     monkeypatch.setitem(sys.modules, "rag",
-                        types.SimpleNamespace(Searcher=lambda index_dir: searcher))
+                        types.SimpleNamespace(
+                            Searcher=lambda index_dir: searcher,
+                            classify_query_bf=lambda question: "착오송금 반환 신청"))
     return searcher
 
 
@@ -159,6 +162,7 @@ def test_run_eval_drives_the_qform_path_and_measures_a_control_group(tmp_path, m
     assert searcher.calls[0]["qform"] == EXTRACTED
     assert searcher.calls[0]["query"] == QUESTION      # metadata 모드는 질문을 늘리지 않는다
     assert searcher.calls[1]["qform"] is None          # 대조군 — 같은 문항을 Q-Form 없이
+    assert [call["bf_override"] for call in searcher.calls] == ["착오송금 반환 신청"] * 2
     qf = res["qform"]
     assert (qf["mode"], qf["n_with_slots"], qf["boosted_hits"]) == ("metadata_soft", 1, 1)
     assert qf["slot_fields"] == {**{f: 0 for f in runner.QFORM_FIELDS},
@@ -169,14 +173,18 @@ def test_run_eval_drives_the_qform_path_and_measures_a_control_group(tmp_path, m
     assert res["hit@1"] == 1.0                          # 본 지표도 Q-Form 경로로 잰 값이다
 
 
-def test_run_eval_without_qform_settings_keeps_the_old_behaviour(tmp_path, monkeypatch):
+def test_run_eval_without_qform_settings_keeps_search_off_and_counts_eligible_slots(tmp_path, monkeypatch):
     searcher = _eval_fixture(tmp_path, monkeypatch)
 
     res = runner.run_eval(str(tmp_path / "idx"), gt_name="gt.jsonl")
 
-    assert searcher.calls == [{"query": QUESTION, "qform": None}]   # 대조군도 돌지 않는다
+    assert searcher.calls == [{"query": QUESTION, "qform": None,
+                               "bf_override": "착오송금 반환 신청"}]  # 대조군도 돌지 않는다
     assert res["qform"] == {"mode": "off", "scope": "msdr", "boost": 0.0,
-                            "n_questions": 1, "n_with_slots": 0,
-                            "slot_fields": {f: 0 for f in runner.QFORM_FIELDS},
+                            "n_questions": 1, "n_with_slots": 1,
+                            "slot_fields": {**{f: 0 for f in runner.QFORM_FIELDS},
+                                            "qualification": 1, "subject": 1},
                             "boosted_hits": 0, "applied": None}
+    assert res["qform_n_total"] == 1
+    assert res["qform_expanded_queries"] == res["qform_metadata_queries"] == 0
     assert res["hit@1"] == 0.0

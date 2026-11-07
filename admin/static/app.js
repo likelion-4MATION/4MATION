@@ -572,7 +572,8 @@ function renderQform() {
     ${q.mode !== "off" && (q.reasons || []).length
       ? "<br>" + q.reasons.map(esc).join("<br>") : ""}
     <br>실제 효과는 왼쪽 <b>[③ 재검증]</b>이 Q-Form 없이 돌린 대조군과 비교해 재 줍니다.</div>
-    ${qformMeasured(q)}`;
+    ${qformMeasured({mode: val("QFORM_RETRIEVAL_MODE"),
+      boost: val("QFORM_META_BOOST"), scope: val("QFORM_SCOPE")})}`;
   if (corp) corp.innerHTML = !cov.available ? "" :
     `<div class="hint">Q-Form 메타데이터: <b>${cov.tagged}/${cov.chunks}청크</b>
       (${(cov.ratio * 100).toFixed(1)}%) 태깅됨 · ${Object.entries(cov.fields || {})
@@ -586,24 +587,29 @@ function renderQform() {
    `measured`(설정과 함께 저장된 실측)에서 읽으므로 새로고침해도 그대로 있다. */
 function qformMeasured(now) {
   const m = MEASURED, a = m && m.qform && m.qform.applied;
-  if (!m || !m.qform) return "";
+  if (!m || !m.qform) return `<div class="note">화면에서 선택한 Q-Form 설정의 전용 평가 기록이 없습니다.
+    저장 후 [③ 재검증]을 실행하면 전체와 Q-Form 대상 성능을 함께 측정합니다.</div>`;
   const when = String(m.at || "").slice(0, 16).replace("T", " ");
+  /* 서비스 적용 상태는 DASH로 표시하되, 실측과의 비교에는 화면의 미저장 선택도 포함한다. */
+  const stale = m.qform.mode !== now.mode || m.qform.scope !== now.scope
+    || Math.abs(Number(m.qform.boost) - Number(now.boost)) > 1e-9;
+  const warning = stale ? `<div class="note warn">이 수치는
+    <b>${esc(fmt("QFORM_RETRIEVAL_MODE", m.qform.mode))} · 가산 ${esc(m.qform.boost)}
+    · ${esc(fmt("QFORM_SCOPE", m.qform.scope))}</b>에서 잰 값입니다. 화면 선택은
+    <b>${esc(fmt("QFORM_RETRIEVAL_MODE", now.mode))} · 가산 ${esc(now.boost)}
+    · ${esc(fmt("QFORM_SCOPE", now.scope))}</b>이라 아직 재지 않았습니다.
+    저장 후 [③ 재검증]을 실행해야 선택한 설정의 수치가 나옵니다.</div>` : "";
   if (!a || !a.on || !a.off) return `<div class="hint">마지막 실측(${esc(when)})에서는
-    슬롯이 잡힌 문항이 없어 Q-Form 효과를 재지 못했습니다 —
-    적용 업무(<b>${esc(fmt("QFORM_SCOPE", m.qform.scope))}</b>) 밖 질문만 있었습니다.</div>`;
+    Q-Form 대조군 비교 결과가 없습니다. 적용 업무는
+    <b>${esc(fmt("QFORM_SCOPE", m.qform.scope))}</b>이고, 슬롯이 잡힌 문항은
+    ${m.qform.n_with_slots ?? 0}/${m.qform.n_questions ?? 0}문항입니다.</div>` + warning;
   const row = k => `<tr><td>${k}</td><td class="n">${a.off[k].toFixed(4)}</td>
     <td class="n"><b>${a.on[k].toFixed(4)}</b></td><td class="n">${QF_DELTA(a.delta, k)}</td></tr>`;
-  /* 측정 당시 설정과 지금 설정이 다르면 반드시 밝힌다. 값을 바꾸고 아직 안 잰 상태에서
-     옛 수치를 '현재 설정'이라는 열 제목 아래 두면 화면이 거짓말을 한다. */
-  const stale = m.qform.mode !== now.mode || Math.abs(m.qform.boost - Number(now.boost)) > 1e-9;
   return `<table style="margin-top:10px">
     <tr><th>마지막 실측 · Q-Form 적용 ${a.n_scored ?? a.n}문항</th>
         <th class="n">미반영</th><th class="n">잰 설정</th><th class="n">차이</th></tr>
     ${["hit@1", "hit@5", "mrr@10"].filter(k => k in a.on && k in a.off).map(row).join("")}</table>
-    ${stale ? `<div class="note warn">이 수치는 <b>${esc(fmt("QFORM_RETRIEVAL_MODE", m.qform.mode))}
-      · 가산 ${m.qform.boost}</b>에서 잰 값입니다. 지금 설정은
-      <b>${esc(fmt("QFORM_RETRIEVAL_MODE", now.mode))} · 가산 ${now.boost}</b>이라
-      아직 재지 않았습니다 — [③ 재검증]을 눌러야 지금 설정의 수치가 나옵니다.</div>` : ""}
+    ${warning}
     <div class="hint">${esc(when)} 측정 · 슬롯 잡힌 문항 ${m.qform.n_with_slots}/${
       m.qform.n_questions} · 가산 실제 적용 ${m.qform.boosted_hits}건.
     슬롯이 없는 문항은 두 경로의 검색 입력이 같아 대조군에서 뺐습니다 —
