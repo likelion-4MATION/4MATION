@@ -201,12 +201,14 @@ def test_admin_runtime_injects_gate_settings(monkeypatch):
         "checkCitations": False,
         "checkNumbers": True,
         "strictUrl": False,
+        "guardsEnabled": False,
     }
     monkeypatch.setattr(settings, "current", lambda: cfg)
     monkeypatch.setitem(sys.modules, "rag", types.ModuleType("rag"))
     for name in (
         "ANSWER_CHECKS_ENABLED", "ANSWER_GATE_MODE", "ANSWER_GATE_MAX_RETRIES",
         "CHECK_URLS_ENABLED", "CHECK_CITATIONS_ENABLED", "CHECK_NUMBERS_ENABLED", "STRICT_URL",
+        "GUARDS_ENABLED",
     ):
         monkeypatch.setattr(chain, name, getattr(chain, name))
 
@@ -219,6 +221,7 @@ def test_admin_runtime_injects_gate_settings(monkeypatch):
     assert chain.CHECK_CITATIONS_ENABLED is False
     assert chain.CHECK_NUMBERS_ENABLED is True
     assert chain.STRICT_URL is False
+    assert chain.GUARDS_ENABLED is False
 
 
 def test_runtime_backend_refreshes_changed_admin_config_once(monkeypatch):

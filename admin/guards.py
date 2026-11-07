@@ -127,8 +127,22 @@ def validate(g: dict, others: list[dict] | None = None) -> list[str]:
         err.append("근거를 입력하세요. 답변에 출처로 표기됩니다.")
     elif len(src) > 60:
         err.append("근거는 60자 이내입니다.")
-    if not g.get("start"):
+    start = str(g.get("start") or "").strip()
+    end = str(g.get("end") or "").strip()
+    if not start:
         err.append("적용 시작일을 입력하세요.")
+    else:
+        try:
+            date.fromisoformat(start)
+        except ValueError:
+            err.append("적용 시작일은 YYYY-MM-DD 형식이어야 합니다.")
+    if end:
+        try:
+            date.fromisoformat(end)
+            if start and end < start:
+                err.append("적용 종료일은 시작일보다 빠를 수 없습니다.")
+        except ValueError:
+            err.append("적용 종료일은 YYYY-MM-DD 형식이어야 합니다.")
 
     if g.get("kind") == "override" and not (g.get("new_value") or "").strip():
         err.append("정정 유형은 '정정 값'이 필요합니다.")
@@ -155,9 +169,12 @@ def list_all() -> list[dict]:
     rows = _load()
     today = date.today().isoformat()
     for g in rows:
-        end = g.get("end") or ""
+        start = str(g.get("start") or "").strip()
+        end = str(g.get("end") or "").strip()
+        g["scheduled"] = bool(start and start > today)
         g["expired"] = bool(end and end < today)
-        g["active"] = g.get("status") == "approved" and not g["expired"]
+        g["active"] = (g.get("status") == "approved"
+                       and not g["scheduled"] and not g["expired"])
         if end:
             try:
                 g["days_left"] = (date.fromisoformat(end) - date.today()).days
@@ -212,14 +229,17 @@ def _norm(s: str) -> str:
     return (s or "").replace(" ", "")
 
 
-def match(query: str, context: str = "", business: str | None = None) -> list[dict]:
+def match(query: str, context: str = "",
+          business: str | list[str] | tuple[str, ...] | set[str] | None = None) -> list[dict]:
     """발동 조건에 걸린 활성 가드만 반환. **전량 상시 주입 금지**의 구현부."""
     qn, cn = _norm(query), _norm(context)
+    businesses = ({business} if isinstance(business, str)
+                  else set(business or []))
     out = []
     for g in list_all():
         if not g["active"]:
             continue
-        if business and g.get("business") and business not in g["business"]:
+        if businesses and g.get("business") and not (businesses & set(g["business"])):
             continue
         if any(_norm(t) in qn or _norm(t) in cn for t in g.get("triggers", [])):
             out.append(g)
@@ -272,6 +292,7 @@ def stats() -> dict:
     return {
         "total": len(rows),
         "active": sum(1 for g in rows if g["active"]),
+        "scheduled": sum(1 for g in rows if g.get("scheduled")),
         "draft": sum(1 for g in rows if g["status"] == "draft"),
         "expiring": sum(1 for g in rows if g.get("days_left") is not None
                         and 0 <= g["days_left"] <= 7),

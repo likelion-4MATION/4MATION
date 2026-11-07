@@ -65,12 +65,13 @@ def test_qform_mode_projection_requires_matching_measurement(monkeypatch):
     assert measured["grade"] == "measured"
 
 
-def test_run_eval_applies_qform_mode_and_returns_subset_metrics(tmp_path, monkeypatch):
+def test_run_eval_uses_predicted_business_function_and_same_population_in_all_modes(tmp_path, monkeypatch):
+    # 정답 업무를 일부러 뒤집는다. 평가 라벨이 슬롯 게이트나 검색으로 새면 실패해야 한다.
     gt = [
         {"id": "q1", "question": QUERY, "answerable": True,
-         "business_function": BF, "gt_chunk_ids": ["c1"], "gt_anchor_span": "근거"},
+         "business_function": "예금자보호제도", "gt_chunk_ids": ["c1"], "gt_anchor_span": "근거"},
         {"id": "q2", "question": "예금자 보호 한도는?", "answerable": True,
-         "business_function": "예금자보호제도", "gt_chunk_ids": ["c1"],
+         "business_function": BF, "gt_chunk_ids": ["c1"],
          "gt_anchor_span": "근거"},
     ]
     (tmp_path / "gt.jsonl").write_text(
@@ -83,7 +84,7 @@ def test_run_eval_applies_qform_mode_and_returns_subset_metrics(tmp_path, monkey
         encoding="utf-8",
     )
 
-    calls = []
+    calls, classified = [], []
 
     class Searcher:
         def __init__(self, index_dir):
@@ -95,7 +96,13 @@ def test_run_eval_applies_qform_mode_and_returns_subset_metrics(tmp_path, monkey
 
     fake_rag = types.ModuleType("rag")
     fake_rag.Searcher = Searcher
-    fake_rag.classify_query_bf = lambda question: BF if "착오송금" in question else "예금자보호제도"
+
+    def classify(question):
+        classified.append(question)
+        assert question in (QUERY, "예금자 보호 한도는?")  # 확장문으로 재분류하지 않는다.
+        return BF if question == QUERY else "예금자보호제도"
+
+    fake_rag.classify_query_bf = classify
 
     fake_eval = types.ModuleType("eval")
     fake_eval._load_jsonl = lambda path: [
@@ -112,24 +119,36 @@ def test_run_eval_applies_qform_mode_and_returns_subset_metrics(tmp_path, monkey
                 "anchor_level": anchor}
 
     fake_eval.evaluate_retrieval = evaluate
-    fake_config = types.ModuleType("qform_config")
-    fake_config.QFORM_RETRIEVAL_MODE = "field_value_soft"
-    fake_config.QFORM_SCOPE = "msdr"
-
     monkeypatch.setattr(runner, "CRAWLER", tmp_path)
     monkeypatch.setitem(sys.modules, "rag", fake_rag)
     monkeypatch.setitem(sys.modules, "eval", fake_eval)
-    monkeypatch.setitem(sys.modules, "qform_config", fake_config)
 
-    result = runner.run_eval(str(index), gt_name="gt.jsonl")
+    for mode in ("off", "field_value", "metadata_soft", "field_value_soft"):
+        calls.clear()
+        classified.clear()
+        result = runner.run_eval(
+            str(index), gt_name="gt.jsonl",
+            qform={"mode": mode, "scope": "msdr", "boost": 0.05},
+        )
+        expanded = mode in ("field_value", "field_value_soft")
+        metadata = mode in ("metadata_soft", "field_value_soft")
 
-    assert len(calls) == 2
-    assert calls[0]["query"] != QUERY
-    assert "qform" in calls[0]["kwargs"]
-    assert calls[1]["query"] == "예금자 보호 한도는?"
-    assert "qform" not in calls[1]["kwargs"]
-    assert result["qform_mode"] == "field_value_soft"
-    assert result["qform_n_total"] == 1
-    assert result["qform_hit@5"] == 1.0
-    assert result["qform_expanded_queries"] == 1
-    assert result["qform_metadata_queries"] == 1
+        assert classified == [QUERY, "예금자 보호 한도는?"]
+        assert len(calls) == (2 if mode == "off" else 3)
+        assert (calls[0]["query"] != QUERY) is expanded
+        assert ("qform" in calls[0]["kwargs"]) is metadata
+        assert calls[0]["kwargs"]["bf_override"] == BF
+        assert calls[1] == {"query": "예금자 보호 한도는?",
+                            "kwargs": {"bf_override": "예금자보호제도"}}
+        if mode != "off":
+            assert calls[2] == {"query": QUERY, "kwargs": {"bf_override": BF}}
+            assert result["qform"]["applied"]["n"] == 1
+            assert result["qform"]["applied"]["delta"]["hit@5"] == 0.0
+        else:
+            assert result["qform"]["applied"] is None
+        assert result["qform_mode"] == result["qform"]["mode"] == mode
+        assert result["qform_eval_version"] == runner.QFORM_EVAL_VERSION
+        assert result["qform_n_total"] == result["qform"]["n_with_slots"] == 1
+        assert result["qform_hit@5"] == 1.0
+        assert result["qform_expanded_queries"] == int(expanded)
+        assert result["qform_metadata_queries"] == int(metadata)

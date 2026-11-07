@@ -3,7 +3,7 @@
 `crawler/`는 화이트리스트 수집, 본문 파싱, 첨부 연결, 청킹, 임베딩·검색 인덱스 생성과
 검색 평가를 담당합니다.
 
-> 기준: 2026-08-30 · 모든 스크립트는 `crawler/`를 현재 폴더로 두고 실행
+> 기준: 2026-10-12 · 모든 스크립트는 `crawler/`를 현재 폴더로 두고 실행
 
 ## 현재 기준선
 
@@ -166,7 +166,11 @@ python eval.py span --gt gt_testset_retrieval_450.jsonl --limit 50
 - `data/testset_natural_450.jsonl`
 - `gt_testset_retrieval_450.jsonl`
 - `data/router_manifest.json`
-- Q-Form CSV 4종
+- `data/eval_chunk_report.md` — `eval.py chunk --report`로 갱신하는 최신 평가 리포트
+- Q-Form CSV 4종 — `data/qform_combos_msdr.csv`·`qform_combos_dpin.csv`·`qform_prompts.csv`·`qform_terms_v0.csv`
+- `yesom_분기분석/attachment_tagging_template.csv` — Q-Form 첨부 후단 필터의 첨부 조합 좌표 원천
+  (`chatbot/attachments.py`의 `TAGGING_PATH`)
+- `tests/test_guards.py` — 수집 가드 스크립트(pytest가 아니라 `python tests/test_guards.py`로 실행)
 
 ### Git에서 제외
 

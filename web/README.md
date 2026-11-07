@@ -48,9 +48,10 @@ python -m uvicorn web.main:app --host 127.0.0.1 --port 8501
 
 ## 관리자 설정 반영
 
-`web/service.py`가 시작할 때 `admin/settings.py`의 저장값을 런타임 모듈에 적용합니다. 관리자와
-사용자 서버는 별도 프로세스이므로 관리자에서 설정을 저장한 뒤 사용자 서버를 재시작해야 새
-설정이 반영됩니다.
+`web/service.py`는 시작할 때 `admin/settings.py`의 저장값을 런타임 모듈에 적용하고, 이후 생성
+요청마다 `refresh_runtime()`으로 `admin/data/admin_config.json`의 교체(mtime·크기·inode)를
+확인합니다. 바뀌었으면 `settings.apply_runtime()`을 다시 호출하므로 관리자에서 저장한 값은 사용자
+서버 재시작 없이 다음 생성 요청부터 반영됩니다. 청킹 설정은 재빌드가 끝나야 반영됩니다.
 
 ## 보안 경계
 

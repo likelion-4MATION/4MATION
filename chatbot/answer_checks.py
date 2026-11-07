@@ -73,6 +73,26 @@ def _amount_in(token: str, ctx_norm: str, ctx_values: set[int]) -> bool:
     return v is not None and v in ctx_values
 
 
+def _allowed_amounts(values) -> tuple[set[str], set[int]]:
+    """가드 등 신뢰된 외부 사실에서 허용한 수치를 검증기 표기로 정규화한다."""
+    tokens: set[str] = set()
+    parsed: set[int] = set()
+    for value in values or []:
+        for token in _amounts(str(value)):
+            tokens.add(token)
+            amount = _parse_won(token)
+            if amount is not None:
+                parsed.add(amount)
+    return tokens, parsed
+
+
+def _is_allowed_amount(token: str, allowed_tokens: set[str], allowed_values: set[int]) -> bool:
+    if token in allowed_tokens:
+        return True
+    amount = _parse_won(token)
+    return amount is not None and amount in allowed_values
+
+
 _REJECTION_RE = re.compile(r"확인되지\s*않는|안내(?:된|되어\s*있는)?\s*내용이\s*아니|답변드리기\s*어렵|소관이?\s*아니")
 
 
@@ -100,14 +120,16 @@ def check_urls(answer: str, sources: list[dict], context_text: str | None = None
             "violations": [f"출처 밖 URL: {u}" for u in bad]}
 
 
-def check_citations(answer: str, hits: list[dict]) -> dict:
+def check_citations(answer: str, hits: list[dict], *, allowed_numbers=None,
+                    admin_correction_allowed: bool = False) -> dict:
     """[출처N] 표기 존재 + 범위 1..len(hits) + 답변 금액 토큰이 인용 청크 안에 실존하는지 간이 대조.
 
     한계: 수치 대조는 표기 변형(한글 숫자 등)에 취약 — 부재 판정은 '의심 플래그'로 해석할 것.
     """
     cites = [int(n) for n in re.findall(r"\[출처(\d+)\]", answer)]
     v = []
-    if not cites and not _is_rejection(answer):
+    has_admin_correction = admin_correction_allowed and "[관리자 정정]" in answer
+    if not cites and not _is_rejection(answer) and not has_admin_correction:
         v.append("출처 번호 미표기")
     bad_range = [n for n in cites if not 1 <= n <= len(hits)]
     if bad_range:
@@ -117,27 +139,35 @@ def check_citations(answer: str, hits: list[dict]) -> dict:
         cited_text = "\n".join(hits[n - 1]["text"] for n in set(valid))
         cited_norm = _norm(cited_text)
         cited_vals = {v_ for a in _amounts(cited_text) if (v_ := _parse_won(a)) is not None}
-        missing = sorted(a for a in _amounts(answer) if not _amount_in(a, cited_norm, cited_vals))
+        allowed_tokens, allowed_values = _allowed_amounts(allowed_numbers)
+        missing = sorted(
+            a for a in _amounts(answer)
+            if not _amount_in(a, cited_norm, cited_vals)
+            and not _is_allowed_amount(a, allowed_tokens, allowed_values)
+        )
         if missing:
             v.append(f"인용 청크에 수치 부재: {missing}")
     return {"name": "check_citations", "ok": not v, "violations": v}
 
 
-def check_numbers(answer: str, context_text: str) -> dict:
+def check_numbers(answer: str, context_text: str, *, allowed_numbers=None) -> dict:
     """답변 내 전화번호·금액이 컨텍스트(top-k 본문 전체)에 실존하는지 — 표기·환산 등가 모두 인정."""
     ctx_norm = _norm(context_text)
     ctx_vals = {v_ for a in _amounts(context_text) if (v_ := _parse_won(a)) is not None}
+    allowed_tokens, allowed_values = _allowed_amounts(allowed_numbers)
     ctx_phones = set(_PHONE_RE.findall(context_text))
     v = [f"컨텍스트에 없는 전화번호: {p}" for p in sorted(set(_PHONE_RE.findall(answer)) - ctx_phones)]
     v += [f"컨텍스트에 없는 금액·비율: {a}" for a in sorted(_amounts(answer))
-          if not _amount_in(a, ctx_norm, ctx_vals)]
+          if not _amount_in(a, ctx_norm, ctx_vals)
+          and not _is_allowed_amount(a, allowed_tokens, allowed_values)]
     return {"name": "check_numbers", "ok": not v, "violations": v}
 
 
 def run_all(answer: str, hits: list[dict], sources: list[dict] | None = None,
             allow_context_urls: bool = False, *, check_urls_enabled: bool = True,
             check_citations_enabled: bool = True,
-            check_numbers_enabled: bool = True) -> dict:
+            check_numbers_enabled: bool = True, allowed_numbers=None,
+            admin_correction_allowed: bool = False) -> dict:
     """활성화된 규칙을 실행해 플래그 목록을 반환한다. 정책 결정은 호출부 책임이다."""
     if sources is None:
         sources = [{"title": h.get("page_title"), "url": h.get("source_url"),
@@ -149,9 +179,12 @@ def run_all(answer: str, hits: list[dict], sources: list[dict] | None = None,
             answer, sources, context_text=context if allow_context_urls else None
         ))
     if check_citations_enabled:
-        results.append(check_citations(answer, hits))
+        results.append(check_citations(
+            answer, hits, allowed_numbers=allowed_numbers,
+            admin_correction_allowed=admin_correction_allowed,
+        ))
     if check_numbers_enabled:
-        results.append(check_numbers(answer, context))
+        results.append(check_numbers(answer, context, allowed_numbers=allowed_numbers))
     flags = [f"{r['name']}: {msg}" for r in results for msg in r["violations"]]
     return {"ok": not flags, "flags": flags, "results": {r["name"]: r for r in results}}
 

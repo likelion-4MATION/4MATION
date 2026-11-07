@@ -16,7 +16,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -370,6 +370,7 @@ def api_dashboard():
         "health": metrics.health(),
         "business": metrics.business_mix(),
         "guards": guards.stats(),
+        "qform": metrics.qform(),
         "oos": oos_store.oos_stats(),
         "evidence": {"preset": metrics.ACC_PRESET, "k": metrics.ACC_K,
                      "chunk": metrics.ACC_CHUNK, "baseline": metrics.BASELINE,
@@ -468,7 +469,17 @@ def api_oos_reports_purge():
 # ── 정적 서빙 ───────────────────────────────────────────────────────────
 @app.get("/")
 def index():
-    return FileResponse(BASE / "static" / "index.html")
+    """정적 자산 링크에 mtime 을 붙여 돌려준다.
+
+    `StaticFiles` 는 etag 를 주지만 브라우저가 **조건부 요청을 보낼 때만** 쓸모가 있다.
+    콘솔을 띄워 둔 탭은 코드를 고쳐도 옛 `app.js` 를 계속 들고 있어서, 서버는 새 필드를
+    내려보내는데 화면만 예전 그대로인 상태가 된다 — 그러면 '기능이 안 붙었다'로 보인다.
+    """
+    html = (BASE / "static" / "index.html").read_text(encoding="utf-8")
+    for name in ("app.js", "style.css"):
+        v = int((BASE / "static" / name).stat().st_mtime)
+        html = html.replace(f"/static/{name}", f"/static/{name}?v={v}")
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
 
 
 app.mount("/static", StaticFiles(directory=BASE / "static"), name="static")
